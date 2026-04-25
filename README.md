@@ -36,15 +36,15 @@ brew tap orpic/tap
 brew install stackstart
 ```
 
-### From GitHub Releases
-
-Download the binary for your platform from the [releases page](https://github.com/orpic/stack-start/releases), extract it, and put it on your `PATH`.
-
-> **macOS Gatekeeper note:** If macOS blocks the binary with "cannot verify developer", run:
+> **macOS note:** If macOS blocks the binary with "cannot verify developer", run:
 > ```bash
 > xattr -d com.apple.quarantine $(which stackstart)
 > ```
-> This only applies to pre-built binaries. Installing from source (`go install`) does not have this issue.
+> This is a one-time step required for unsigned open source binaries on macOS. Installing from source (`go install`) does not need this.
+
+### From GitHub Releases
+
+Download the binary for your platform from the [releases page](https://github.com/orpic/stack-start/releases), extract it, and put it on your `PATH`. On macOS, run the `xattr` command above after placing the binary.
 
 ### From source
 
@@ -135,6 +135,34 @@ stackstart down            # gracefully stop everything
 ### 4. Commit `stackstart.yaml` to git
 
 The file is fully portable - every path inside it is relative to the project root. Any teammate cloning the repo can run `stackstart up dev` and get the same stack, no setup docs required.
+
+## Set up with AI
+
+Any AI coding agent (Cursor, Claude Code, Codex, Copilot, etc.) can generate a `stackstart.yaml` for your project. Copy-paste this prompt to your agent:
+
+```text
+Explore my project structure and help me set up stackstart. Read the
+stackstart README and TECH.md at https://github.com/orpic/stack-start
+for the YAML schema and reference syntax. Identify all the services I
+run locally, figure out their start commands, working directories,
+dependency order, and readiness signals. Ask me what log lines or ports
+indicate each service is ready, and whether any runtime values (like
+tunnel URLs) need to flow between services. Then generate a stackstart.yaml.
+
+Tips for generating stackstart configs:
+- Prefer tcp: host:port readiness checks for services on a known port
+  (more reliable than log matching through a PTY).
+- Use log: "pattern" checks when gating on a specific event (like
+  "migrations complete") that happens before the port opens.
+- Keep log regexes simple. PTY output may contain ANSI escape codes
+  and Unicode characters that break complex patterns.
+- For captures (like extracting a cloudflared tunnel URL), the regex
+  must have exactly one capturing group.
+- Project-level stackstart.yaml (committed to repo): paths are relative
+  to the file's directory, no project_path field needed.
+- User-level ~/stackstart.yaml (personal/company projects): requires an
+  explicit project_path field with the absolute path to the project.
+```
 
 ## Key features
 
