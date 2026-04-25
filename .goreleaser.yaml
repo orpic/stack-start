@@ -1,0 +1,29 @@
+version: 2
+project_name: stackstart
+builds:
+  - id: stackstart
+    main: ./cmd/stackstart
+    binary: stackstart
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/orpic/stack-start/internal/version.Version={{.Version}}
+      - -X github.com/orpic/stack-start/internal/version.Commit={{.Commit}}
+      - -X github.com/orpic/stack-start/internal/version.Date={{.Date}}
+
+archives:
+  - format: tar.gz
+    name_template: "stackstart_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+brews:
+  - repository:
+      owner: orpic
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/orpic/stack-start
+    description: "Runtime-aware local dev orchestrator"
+    license: "MIT"
+    test: |
+      system "#{bin}/stackstart --version"
