@@ -14,10 +14,10 @@ builds:
       - -X github.com/orpic/stack-start/internal/version.Date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: "stackstart_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
-brews:
+homebrew_casks:
   - repository:
       owner: orpic
       name: homebrew-tap
@@ -25,5 +25,3 @@ brews:
     homepage: https://github.com/orpic/stack-start
     description: "Runtime-aware local dev orchestrator"
     license: "MIT"
-    test: |
-      system "#{bin}/stackstart --version"
