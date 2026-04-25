@@ -57,9 +57,9 @@ func ReadRecord(path string) (Record, error) {
 
 // RemoveRecord deletes the session record, lock, and per-session directory.
 func RemoveRecord(slug string) {
-	os.Remove(SessionRecordPath(slug))
-	os.Remove(SessionLockPath(slug))
-	os.RemoveAll(SessionDir(slug))
+	_ = os.Remove(SessionRecordPath(slug))
+	_ = os.Remove(SessionLockPath(slug))
+	_ = os.RemoveAll(SessionDir(slug))
 }
 
 // ReadProcessState reads the state string from a process state file.

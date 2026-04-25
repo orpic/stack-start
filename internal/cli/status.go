@@ -25,7 +25,7 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "PROFILE\tPROJECT\tPID\tSTARTED\tPROCESSES")
+			_, _ = fmt.Fprintln(w, "PROFILE\tPROJECT\tPID\tSTARTED\tPROCESSES")
 			for _, rec := range records {
 				procSummary := ""
 				for i, p := range rec.Processes {
@@ -35,7 +35,7 @@ func newStatusCmd() *cobra.Command {
 					}
 					procSummary += fmt.Sprintf("%s(%s)", p.Name, state)
 				}
-				fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n",
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n",
 					rec.Profile, rec.ProjectPath, rec.StackstartPID,
 					rec.StartedAt.Format("15:04:05"), procSummary)
 			}

@@ -32,15 +32,13 @@ func New(name string, padTo int, fileWriter, consoleWriter io.Writer, consoleMu 
 
 // WriteLine writes one log line to both the file and the console.
 func (m *Mux) WriteLine(line []byte) {
-	// Raw bytes to file (no prefix, no color)
-	m.fileWriter.Write(line)
-	m.fileWriter.Write([]byte("\n"))
+	_, _ = m.fileWriter.Write(line)
+	_, _ = m.fileWriter.Write([]byte("\n"))
 
-	// Prefixed + colored to console
 	prefix := m.clr.Sprint(FormatPrefix(m.name, m.padTo))
 	m.consoleMu.Lock()
-	m.consoleWriter.Write([]byte(prefix))
-	m.consoleWriter.Write(line)
-	m.consoleWriter.Write([]byte("\n"))
+	_, _ = m.consoleWriter.Write([]byte(prefix))
+	_, _ = m.consoleWriter.Write(line)
+	_, _ = m.consoleWriter.Write([]byte("\n"))
 	m.consoleMu.Unlock()
 }

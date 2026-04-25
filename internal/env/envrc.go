@@ -67,7 +67,7 @@ func loadNative(path string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	result := make(map[string]string)
 	scanner := bufio.NewScanner(f)
@@ -83,9 +83,9 @@ func loadNative(path string) (map[string]string, error) {
 
 		if !strings.HasPrefix(line, "export ") {
 			return nil, fmt.Errorf(
-				"%s:%d: unsupported directive %q\n"+
-					"This .envrc requires direnv to evaluate. "+
-					"Install direnv via 'brew install direnv' and run 'direnv allow'.",
+				"%s:%d: unsupported directive %q - "+
+					"this .envrc requires direnv to evaluate; "+
+					"install direnv via 'brew install direnv' and run 'direnv allow'",
 				path, lineNum, line)
 		}
 

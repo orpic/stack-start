@@ -170,7 +170,7 @@ func (s *Supervisor) scanLoop(
 
 func (s *Supervisor) waitLoop(readinessCancel context.CancelFunc) {
 	err := s.cmd.Wait()
-	s.ptyMaster.Close()
+	_ = s.ptyMaster.Close()
 	close(s.done)
 	readinessCancel()
 

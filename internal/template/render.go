@@ -31,7 +31,7 @@ func Render(projectPath, srcPath, dstPath string, data map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", absDst, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := tmpl.Execute(f, data); err != nil {
 		return fmt.Errorf("executing template %s: %w", absSrc, err)

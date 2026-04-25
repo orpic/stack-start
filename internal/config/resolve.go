@@ -25,8 +25,8 @@ func Resolve(cwd, name, home, overridePath string) (Profile, string, error) {
 
 	if len(candidates) == 0 {
 		return Profile{}, "", fmt.Errorf(
-			"no profile named %q applies to directory %s\n"+
-				"Run 'stackstart list' to see available profiles, or 'stackstart init' to create one.",
+			"no profile named %q applies to directory %s; "+
+				"run 'stackstart list' to see available profiles, or 'stackstart init' to create one",
 			name, cwd)
 	}
 

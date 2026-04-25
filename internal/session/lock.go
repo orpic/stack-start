@@ -26,7 +26,7 @@ func Acquire(slug string) (*Lock, error) {
 	}
 
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf(
 			"profile is already running for this project; see 'stackstart status'")
 	}
@@ -37,7 +37,7 @@ func Acquire(slug string) (*Lock, error) {
 // Release releases the lock and closes the file.
 func (l *Lock) Release() {
 	if l.file != nil {
-		syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
-		l.file.Close()
+		_ = syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
+		_ = l.file.Close()
 	}
 }

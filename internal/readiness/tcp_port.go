@@ -27,7 +27,7 @@ func (c *TCPCheck) Run(ctx context.Context) {
 		case <-ticker.C:
 			conn, err := net.DialTimeout("tcp", c.Address, time.Second)
 			if err == nil {
-				conn.Close()
+				_ = conn.Close()
 				c.matched.Store(true)
 				return
 			}

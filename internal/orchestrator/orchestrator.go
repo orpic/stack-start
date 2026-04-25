@@ -89,7 +89,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("creating log file for %s: %w", name, err)
 		}
-		defer logFile.Close()
+		defer func() { _ = logFile.Close() }()
 
 		mux := logmux.New(name, padTo, logFile, os.Stdout, &o.consoleMu)
 
@@ -331,7 +331,7 @@ func (o *Orchestrator) cleanup() {
 
 func (o *Orchestrator) setupLogger() {
 	sessDir := session.SessionDir(o.slug)
-	os.MkdirAll(sessDir, 0755)
+	_ = os.MkdirAll(sessDir, 0755)
 
 	logPath := filepath.Join(sessDir, "stackstart.log")
 	logFile, err := os.Create(logPath)

@@ -13,7 +13,7 @@ func Follow(ctx context.Context, path string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Seek to end to only show new content
 	if _, err := f.Seek(0, io.SeekEnd); err != nil {
@@ -31,11 +31,10 @@ func Follow(ctx context.Context, path string, w io.Writer) error {
 		case <-ticker.C:
 			n, err := f.Read(buf)
 			if n > 0 {
-				w.Write(buf[:n])
+				_, _ = w.Write(buf[:n])
 			}
 			if err != nil && err != io.EOF {
-				// File might have been truncated; reopen
-				f.Close()
+				_ = f.Close()
 				f, err = os.Open(path)
 				if err != nil {
 					return err
