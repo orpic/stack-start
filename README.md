@@ -143,17 +143,6 @@ The file is fully portable - every path inside it is relative to the project roo
 - **Environment composition** - layer env vars from `.envrc` (via direnv), `.env` files, per-process `env:` blocks, and captured runtime values, with clear precedence rules.
 - **Share-friendly** - no absolute paths inside process definitions. Commit `stackstart.yaml` to git; it works on every teammate's machine.
 
-## How it compares
-
-| Tool | Deps | Readiness gates | Value propagation | Profiles | Config cascade |
-| --- | :---: | :---: | :---: | :---: | :---: |
-| **stackstart** | Yes | Log regex + TCP | Yes (log capture -> env/args) | Yes (name + path scoped) | Git-style upward walk |
-| foreman / overmind | No | No | No | No | No |
-| process-compose | Yes | Basic probes | No | No | No |
-| docker-compose | Yes (containers) | Health checks | No (between services) | Profiles (v2) | Override files |
-| tmuxinator | No | No | No | No | No |
-| Bash scripts | Manual | Manual | Manual | Manual | Manual |
-
 ## Commands
 
 ```text
