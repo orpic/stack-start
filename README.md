@@ -40,6 +40,12 @@ brew install stackstart
 
 Download the binary for your platform from the [releases page](https://github.com/orpic/stack-start/releases), extract it, and put it on your `PATH`.
 
+> **macOS Gatekeeper note:** If macOS blocks the binary with "cannot verify developer", run:
+> ```bash
+> xattr -d com.apple.quarantine $(which stackstart)
+> ```
+> This only applies to pre-built binaries. Installing from source (`go install`) does not have this issue.
+
 ### From source
 
 Requires Go 1.25+:

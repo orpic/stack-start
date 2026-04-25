@@ -12,6 +12,10 @@ builds:
       - -X github.com/orpic/stack-start/internal/version.Version={{.Version}}
       - -X github.com/orpic/stack-start/internal/version.Commit={{.Commit}}
       - -X github.com/orpic/stack-start/internal/version.Date={{.Date}}
+    hooks:
+      post:
+        - cmd: '{{ if eq .Os "darwin" }}codesign --force -s - {{ .Path }}{{ else }}true{{ end }}'
+          output: true
 
 archives:
   - formats: [tar.gz]
