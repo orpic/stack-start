@@ -42,7 +42,7 @@ Download the binary for your platform from the [releases page](https://github.co
 
 ### From source
 
-Requires Go 1.21+:
+Requires Go 1.25+:
 
 ```bash
 go install github.com/orpic/stack-start/cmd/stackstart@latest
