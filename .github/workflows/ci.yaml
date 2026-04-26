@@ -1,7 +1,7 @@
 name: ci
 on: [pull_request, push]
 jobs:
-  test:
+  unit:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -12,7 +12,23 @@ jobs:
         with:
           go-version: "stable"
       - run: go vet ./...
-      - run: go test ./...
+      - name: Unit tests with race detection and coverage
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./internal/...
+      - name: Print coverage summary
+        run: go tool cover -func=coverage.out | tail -1
       - uses: golangci/golangci-lint-action@v7
         with:
           version: "v2.11.4"
+
+  e2e:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - name: E2e tests
+        run: go test -v -timeout 180s ./e2e/
