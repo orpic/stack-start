@@ -1,0 +1,52 @@
+profiles:
+  dev:
+    processes:
+      db:
+        cwd: packages/db
+        cmd: docker compose up postgres
+        readiness:
+          timeout: 30s
+          checks:
+            - tcp: localhost:5432
+      backend:
+        cwd: packages/backend
+        cmd: npm run dev
+        depends_on: [db]
+        env:
+          DATABASE_URL: "${envrc.DATABASE_URL}"
+        readiness:
+          timeout: 60s
+          checks:
+            - log: "listening on port 4000"
+      tunnel:
+        cwd: packages/tunnel
+        cmd: cloudflared tunnel --url http://localhost:4000
+        depends_on: [db]
+        readiness:
+          timeout: 20s
+          checks:
+            - log: "https://[a-z0-9-]+\\.trycloudflare\\.com"
+        captures:
+          - name: url
+            log: "(https://[a-z0-9-]+\\.trycloudflare\\.com)"
+            required: true
+      web:
+        cwd: packages/web
+        cmd: npm run dev
+        depends_on: [backend]
+        on_exit: ignore
+        readiness:
+          timeout: 30s
+          mode: any
+          checks:
+            - tcp: localhost:3000
+            - log: "ready in"
+  minimal:
+    processes:
+      db:
+        cwd: packages/db
+        cmd: docker compose up postgres
+        readiness:
+          timeout: 30s
+          checks:
+            - tcp: localhost:5432
