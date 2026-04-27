@@ -344,8 +344,27 @@ Explicitly **not** in v1, in order of "most likely to be asked about":
 - Remote / SSH execution.
 - Windows support.
 - Terminal-tab spawning of any kind (deferred to v1.x).
+- First-class multi-repo support (orchestrating processes across separate git repos in a single profile; currently achievable via `~/stackstart.yaml` with absolute `project_path` but no clean per-process repo resolution).
 
 These are not rejected forever; they are simply not in v1.
+
+### v1.x candidate priorities (post-stabilization)
+
+Roughly ordered by expected impact. Details to be designed before implementation.
+
+1. **One-shot processes** (`kind: oneshot`) - run-and-exit tasks like migrations before starting dependents.
+2. **Interactive TUI dashboard** - full bubbletea-based UI with live status, log panes, process control, custom keybindings.
+3. **Multi-path profiles** - allow `project_path` to be a list so one profile config applies to multiple project roots.
+4. **Additional readiness checks** - HTTP endpoint (poll until 200), file-exists (poll until file appears), custom command (poll until exit 0).
+5. **`--json` on status** - machine-parseable output for scripting and CI integration.
+6. **Auto-restart on failure** - restart policies (`on-failure`, `always`, `never`) with max retries and backoff. Needs design work on how users specify failure detection for external processes.
+7. **Remote / SSH execution** - needs design on how `cwd` and env composition work over SSH.
+
+### Explicitly rejected
+
+- Container management - solved by Docker, not our domain.
+- Secrets management - solved by existing tools (Vault, 1Password CLI, etc.), build on top only.
+- Windows support - no first-class support planned. Users can `go install` and use it but no platform-specific work.
 
 ## 13. Success metrics
 
