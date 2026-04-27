@@ -733,3 +733,201 @@ profiles:
 		return strings.Contains(outBuf.String(), "RUNNING")
 	}, 10*time.Second, 100*time.Millisecond)
 }
+
+// --- Oneshot processes ---
+
+func TestE2E_Oneshot_ExitZero_UnblocksDependents(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `
+profiles:
+  test:
+    processes:
+      setup:
+        cwd: .
+        cmd: "sh -c 'echo SETUP_DONE'"
+        kind: oneshot
+      app:
+        cwd: .
+        cmd: "sh -c 'echo APP_STARTED && sleep 30'"
+        depends_on: [setup]
+        readiness:
+          timeout: 5s
+          checks:
+            - log: "APP_STARTED"
+`)
+	cmd := runStackstart(t, dir, "up", "test")
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &outBuf
+	require.NoError(t, cmd.Start())
+
+	defer func() {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		_ = cmd.Wait()
+	}()
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(outBuf.String(), "APP_STARTED")
+	}, 10*time.Second, 100*time.Millisecond, "app should start after oneshot completes")
+}
+
+func TestE2E_Oneshot_ExitNonZero_FailsStack(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `
+profiles:
+  test:
+    processes:
+      setup:
+        cwd: .
+        cmd: "sh -c 'echo FAILING && exit 1'"
+        kind: oneshot
+      app:
+        cwd: .
+        cmd: "sh -c 'echo APP_STARTED && sleep 30'"
+        depends_on: [setup]
+`)
+	out, code := runAndWait(t, dir, "up", "test")
+	require.NotEqual(t, 0, code)
+	require.Contains(t, out, "FAILED")
+	require.Contains(t, out, "setup")
+	require.NotContains(t, out, "APP_STARTED")
+}
+
+func TestE2E_Oneshot_WithTimeout(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `
+profiles:
+  test:
+    processes:
+      setup:
+        cwd: .
+        cmd: "sh -c 'sleep 30'"
+        kind: oneshot
+        readiness:
+          timeout: 2s
+`)
+	out, code := runAndWait(t, dir, "up", "test")
+	require.NotEqual(t, 0, code)
+	require.Contains(t, out, "FAILED")
+}
+
+func TestE2E_Oneshot_ChainedSetups(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `
+profiles:
+  test:
+    processes:
+      build:
+        cwd: .
+        cmd: "sh -c 'echo BUILD_DONE'"
+        kind: oneshot
+      install:
+        cwd: .
+        cmd: "sh -c 'echo INSTALL_DONE'"
+        kind: oneshot
+        depends_on: [build]
+      app:
+        cwd: .
+        cmd: "sh -c 'echo APP_RUNNING && sleep 30'"
+        depends_on: [install]
+        readiness:
+          timeout: 5s
+          checks:
+            - log: "APP_RUNNING"
+`)
+	cmd := runStackstart(t, dir, "up", "test")
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &outBuf
+	require.NoError(t, cmd.Start())
+
+	defer func() {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		_ = cmd.Wait()
+	}()
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(outBuf.String(), "APP_RUNNING")
+	}, 10*time.Second, 100*time.Millisecond, "app should start after chained oneshots complete")
+}
+
+func TestE2E_Oneshot_WithCapture(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `
+profiles:
+  test:
+    processes:
+      generator:
+        cwd: .
+        cmd: "sh -c 'echo TOKEN=abc123secret'"
+        kind: oneshot
+        captures:
+          - name: token
+            log: "TOKEN=([a-z0-9]+)"
+            required: true
+      app:
+        cwd: .
+        cmd: "sh -c 'echo RECEIVED=$AUTH_TOKEN && sleep 30'"
+        depends_on: [generator]
+        env:
+          AUTH_TOKEN: "${generator.token}"
+        readiness:
+          timeout: 5s
+          checks:
+            - log: "RECEIVED="
+`)
+	cmd := runStackstart(t, dir, "up", "test")
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &outBuf
+	require.NoError(t, cmd.Start())
+
+	defer func() {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		_ = cmd.Wait()
+	}()
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(outBuf.String(), "RECEIVED=abc123secret")
+	}, 10*time.Second, 100*time.Millisecond, "app should receive captured token from oneshot")
+}
+
+func TestE2E_Oneshot_WithReadinessCheck(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `
+profiles:
+  test:
+    processes:
+      setup:
+        cwd: .
+        cmd: "sh -c 'echo BUILD_COMPLETE && echo EXTRA_OUTPUT'"
+        kind: oneshot
+        readiness:
+          timeout: 5s
+          checks:
+            - log: "BUILD_COMPLETE"
+      app:
+        cwd: .
+        cmd: "sh -c 'echo APP_UP && sleep 30'"
+        depends_on: [setup]
+        readiness:
+          timeout: 5s
+          checks:
+            - log: "APP_UP"
+`)
+	cmd := runStackstart(t, dir, "up", "test")
+	var outBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &outBuf
+	require.NoError(t, cmd.Start())
+
+	defer func() {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		_ = cmd.Wait()
+	}()
+
+	require.Eventually(t, func() bool {
+		out := outBuf.String()
+		return strings.Contains(out, "BUILD_COMPLETE") && strings.Contains(out, "APP_UP")
+	}, 10*time.Second, 100*time.Millisecond)
+}

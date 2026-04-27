@@ -410,3 +410,106 @@ func TestValidate_TemplateAbsoluteSrc(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "must be relative")
 }
+
+// --- Kind validation ---
+
+func TestValidate_KindLongRunning(t *testing.T) {
+	p := Profile{
+		Processes: map[string]Process{
+			"app": {Cmd: "echo hi", Kind: "long-running"},
+		},
+	}
+	require.NoError(t, Validate(p, "test"))
+}
+
+func TestValidate_KindOneshot(t *testing.T) {
+	p := Profile{
+		Processes: map[string]Process{
+			"setup": {Cmd: "npm install", Kind: "oneshot"},
+		},
+	}
+	require.NoError(t, Validate(p, "test"))
+}
+
+func TestValidate_KindEmpty(t *testing.T) {
+	p := Profile{
+		Processes: map[string]Process{
+			"app": {Cmd: "echo hi"},
+		},
+	}
+	require.NoError(t, Validate(p, "test"))
+}
+
+func TestValidate_KindInvalid(t *testing.T) {
+	p := Profile{
+		Processes: map[string]Process{
+			"app": {Cmd: "echo hi", Kind: "daemon"},
+		},
+	}
+	err := Validate(p, "test")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "kind must be")
+}
+
+func TestValidate_OneshotNoReadiness(t *testing.T) {
+	p := Profile{
+		Processes: map[string]Process{
+			"setup": {Cmd: "npm install", Kind: "oneshot"},
+		},
+	}
+	require.NoError(t, Validate(p, "test"))
+}
+
+func TestValidate_OneshotWithTimeoutOnly(t *testing.T) {
+	p := Profile{
+		Processes: map[string]Process{
+			"setup": {
+				Cmd:  "npm run build",
+				Kind: "oneshot",
+				Readiness: &Readiness{
+					Timeout: Duration{Duration: 120 * time.Second},
+				},
+			},
+		},
+	}
+	require.NoError(t, Validate(p, "test"))
+}
+
+func TestValidate_OneshotWithChecks(t *testing.T) {
+	p := Profile{
+		Processes: map[string]Process{
+			"setup": {
+				Cmd:  "npm run build",
+				Kind: "oneshot",
+				Readiness: &Readiness{
+					Timeout: Duration{Duration: 60 * time.Second},
+					Checks:  []Check{{Log: "build complete"}},
+				},
+			},
+		},
+	}
+	require.NoError(t, Validate(p, "test"))
+}
+
+func TestValidate_ServiceRequiresChecks(t *testing.T) {
+	p := Profile{
+		Processes: map[string]Process{
+			"app": {
+				Cmd: "npm run dev",
+				Readiness: &Readiness{
+					Timeout: Duration{Duration: 30 * time.Second},
+					Checks:  []Check{},
+				},
+			},
+		},
+	}
+	err := Validate(p, "test")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "at least one check")
+}
+
+func TestProcess_IsOneshot(t *testing.T) {
+	require.True(t, Process{Kind: "oneshot"}.IsOneshot())
+	require.False(t, Process{Kind: "long-running"}.IsOneshot())
+	require.False(t, Process{Kind: ""}.IsOneshot())
+}

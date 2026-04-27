@@ -47,7 +47,10 @@ type Supervisor struct {
 	ptyMaster    *os.File
 	pid          int
 	done         chan struct{}
+	scanDone     chan struct{}
 	lastLogLines []string
+	ready        bool
+	eval         *readiness.Evaluator
 }
 
 // Start spawns the child process under a PTY, starts scanning its output,
@@ -70,6 +73,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	s.ptyMaster = ptyMaster
 	s.pid = s.cmd.Process.Pid
 	s.done = make(chan struct{})
+	s.scanDone = make(chan struct{})
 
 	s.emitEvent(StateStarting, nil)
 
@@ -97,6 +101,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	}
 
 	eval := readiness.NewEvaluator(s.readinessMode(), checks)
+	s.eval = eval
 
 	var readinessCtx context.Context
 	var readinessCancel context.CancelFunc
@@ -126,6 +131,7 @@ func (s *Supervisor) scanLoop(
 	lineChecks []readiness.LineEvaluator,
 ) {
 	defer readinessCancel()
+	defer close(s.scanDone)
 
 	ready := false
 	scanner := bufio.NewScanner(s.ptyMaster)
@@ -150,13 +156,13 @@ func (s *Supervisor) scanLoop(
 			}
 		}
 
-		if s.allRequiredCapturesDone() && eval.Satisfied() {
+		if !s.Proc.IsOneshot() && s.allRequiredCapturesDone() && eval.Satisfied() {
 			ready = true
+			s.ready = true
 			s.emitEvent(StateReady, nil)
 		}
 	}
 
-	// If we exited the scan without becoming ready, check if context timed out
 	if !ready {
 		select {
 		case <-readinessCtx.Done():
@@ -170,9 +176,29 @@ func (s *Supervisor) scanLoop(
 
 func (s *Supervisor) waitLoop(readinessCancel context.CancelFunc) {
 	err := s.cmd.Wait()
+
+	time.Sleep(50 * time.Millisecond)
 	_ = s.ptyMaster.Close()
+
+	select {
+	case <-s.scanDone:
+	case <-time.After(2 * time.Second):
+	}
+
 	close(s.done)
 	readinessCancel()
+
+	if s.Proc.IsOneshot() {
+		if err != nil {
+			s.emitEvent(StateFailed, fmt.Errorf("oneshot process failed: %w", err))
+		} else if s.eval.Satisfied() && s.allRequiredCapturesDone() {
+			s.ready = true
+			s.emitEvent(StateReady, nil)
+		} else {
+			s.emitEvent(StateFailed, fmt.Errorf("oneshot process exited before readiness checks passed"))
+		}
+		return
+	}
 
 	if err != nil {
 		s.emitEvent(StateExited, fmt.Errorf("process exited: %w", err))

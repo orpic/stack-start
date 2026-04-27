@@ -247,18 +247,7 @@ func (o *Orchestrator) startProcess(ctx context.Context, name, sessDir string) e
 	if err != nil {
 		return fmt.Errorf("process %s: cmd interpolation failed: %w", name, err)
 	}
-	sup.Proc = config.Process{
-		Cwd:             sup.Proc.Cwd,
-		Cmd:             resolvedCmd,
-		Env:             sup.Proc.Env,
-		DependsOn:       sup.Proc.DependsOn,
-		Readiness:       sup.Proc.Readiness,
-		Captures:        sup.Proc.Captures,
-		Templates:       sup.Proc.Templates,
-		OnExit:          sup.Proc.OnExit,
-		Required:        sup.Proc.Required,
-		StopGracePeriod: sup.Proc.StopGracePeriod,
-	}
+	sup.Proc.Cmd = resolvedCmd
 	sup.Env = processEnv
 
 	// Render templates before starting

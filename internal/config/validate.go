@@ -35,6 +35,10 @@ func Validate(profile Profile, profileName string) error {
 }
 
 func validateProcess(name string, proc Process, names map[string]bool, profile Profile) error {
+	if proc.Kind != "" && proc.Kind != "oneshot" && proc.Kind != "long-running" {
+		return fmt.Errorf("process %q: kind must be 'oneshot' or 'long-running', got %q", name, proc.Kind)
+	}
+
 	if proc.Cmd == "" {
 		return fmt.Errorf("process %q: 'cmd' is required", name)
 	}
@@ -57,7 +61,7 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 	}
 
 	if proc.Readiness != nil {
-		if err := validateReadiness(name, proc.Readiness); err != nil {
+		if err := validateReadiness(name, proc.Readiness, proc.IsOneshot()); err != nil {
 			return err
 		}
 	}
@@ -86,7 +90,7 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 	return nil
 }
 
-func validateReadiness(name string, r *Readiness) error {
+func validateReadiness(name string, r *Readiness, isOneshot bool) error {
 	if r.Timeout.Duration <= 0 {
 		return fmt.Errorf("process %q: readiness.timeout is required and must be positive", name)
 	}
@@ -95,7 +99,7 @@ func validateReadiness(name string, r *Readiness) error {
 		return fmt.Errorf("process %q: readiness.mode must be 'any' or 'all', got %q", name, r.Mode)
 	}
 
-	if len(r.Checks) == 0 {
+	if len(r.Checks) == 0 && !isOneshot {
 		return fmt.Errorf("process %q: readiness.checks must contain at least one check", name)
 	}
 

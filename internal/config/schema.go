@@ -16,6 +16,7 @@ type Profile struct {
 }
 
 type Process struct {
+	Kind            string            `yaml:"kind,omitempty"`
 	Cwd             string            `yaml:"cwd"`
 	Cmd             string            `yaml:"cmd"`
 	Env             map[string]string `yaml:"env,omitempty"`
@@ -26,6 +27,10 @@ type Process struct {
 	OnExit          string            `yaml:"on_exit,omitempty"`
 	Required        *bool             `yaml:"required,omitempty"`
 	StopGracePeriod Duration          `yaml:"stop_grace_period,omitempty"`
+}
+
+func (p Process) IsOneshot() bool {
+	return p.Kind == "oneshot"
 }
 
 func (p Process) IsRequired() bool {
