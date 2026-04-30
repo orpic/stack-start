@@ -245,6 +245,7 @@ Numbered. **MUST** = required for v1. **SHOULD** = strongly preferred for v1, ma
 - F1.4 **MUST** treat `A depends_on B` as "B must be ready before A starts" (not "B must be spawned").
 - F1.5 **MUST** treat every process as required by default; opt-out via `required: false`.
 - F1.6 **MUST** support per-process `on_exit: fail | ignore` policy for post-ready exits; default `fail`.
+- F1.7 **MUST** support one-shot processes via `kind: oneshot`. Exit code 0 marks the process as ready (unblocking dependents); non-zero exit triggers stack failure. Readiness checks are optional for oneshot; timeout acts as max duration. Default `kind` is `long-running`.
 
 ### F2 - Readiness checks
 
@@ -335,7 +336,7 @@ Explicitly **not** in v1, in order of "most likely to be asked about":
 - Post-ready liveness probing.
 - Mid-run reactive value updates (e.g. cloudflared reconnect with a new URL automatically restarting dependents).
 - HTTP / file-exists / custom-command readiness checks.
-- One-shot process kind (e.g. "run migrations, then start backend"). v1 supports long-running processes only.
+- ~~One-shot process kind~~ — implemented in v0.2.0 (`kind: oneshot`).
 - Profile inheritance / `extends`.
 - Deep merging of config across the cascade.
 - Cross-profile or cross-file process sharing.
@@ -352,7 +353,7 @@ These are not rejected forever; they are simply not in v1.
 
 Roughly ordered by expected impact. Details to be designed before implementation.
 
-1. **One-shot processes** (`kind: oneshot`) - run-and-exit tasks like migrations before starting dependents.
+1. ~~**One-shot processes**~~ — shipped in v0.2.0.
 2. **Interactive TUI dashboard** - full bubbletea-based UI with live status, log panes, process control, custom keybindings.
 3. **Multi-path profiles** - allow `project_path` to be a list so one profile config applies to multiple project roots.
 4. **Additional readiness checks** - HTTP endpoint (poll until 200), file-exists (poll until file appears), custom command (poll until exit 0).

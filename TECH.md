@@ -173,6 +173,7 @@ profiles:
                                            # implicit (file's directory) for project-local files
     processes:
       <process_name>:
+        kind: oneshot | long-running       # optional, default: long-running
         cwd: <relative path>               # required, relative to project_path
         cmd: <shell command string>        # required
         env:                               # optional
@@ -293,6 +294,7 @@ type Profile struct {
 }
 
 type Process struct {
+    Kind            string            `yaml:"kind,omitempty"`            // "oneshot" | "long-running"
     Cwd             string            `yaml:"cwd"`
     Cmd             string            `yaml:"cmd"`
     Env             map[string]string `yaml:"env,omitempty"`
@@ -498,11 +500,11 @@ A supervised process moves through these states, written into the per-process st
 
 - `pending` - declared in the profile, dependencies not yet ready
 - `starting` - spawned, PTY attached, readiness checks running
-- `ready` - all readiness checks passed, all required captures resolved
-- `failed` - readiness timed out, capture missed, or exited during readiness wait
-- `exited` - exited cleanly post-ready (with `on_exit: ignore`)
+- `ready` - all readiness checks passed, all required captures resolved. For oneshot processes: exited with code 0 (and checks satisfied if any were defined).
+- `failed` - readiness timed out, capture missed, exited during readiness wait, or (for oneshot) exited with non-zero code.
+- `exited` - exited cleanly post-ready (with `on_exit: ignore`). Not used for oneshot processes.
 
-State transitions are emitted onto the central `events` channel; the orchestrator reacts to `ready` events to release dependents.
+State transitions are emitted onto the central `events` channel; the orchestrator reacts to `ready` events to release dependents. For oneshot processes, the `ready` event is emitted only from the wait loop (after exit code is known), never from the scan loop.
 
 ### 8.4 Signal handling and orchestrated shutdown
 
