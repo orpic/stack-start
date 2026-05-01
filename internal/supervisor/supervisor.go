@@ -189,12 +189,13 @@ func (s *Supervisor) waitLoop(readinessCancel context.CancelFunc) {
 	readinessCancel()
 
 	if s.Proc.IsOneshot() {
-		if err != nil {
+		switch {
+		case err != nil:
 			s.emitEvent(StateFailed, fmt.Errorf("oneshot process failed: %w", err))
-		} else if s.eval.Satisfied() && s.allRequiredCapturesDone() {
+		case s.ready || (s.eval.Satisfied() && s.allRequiredCapturesDone()):
 			s.ready = true
 			s.emitEvent(StateReady, nil)
-		} else {
+		default:
 			s.emitEvent(StateFailed, fmt.Errorf("oneshot process exited before readiness checks passed"))
 		}
 		return
