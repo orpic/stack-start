@@ -1,0 +1,177 @@
+# The composite stack: the test projects run together the way a real
+# product does. Postgres -> Phoenix, plus a Node API and a React Router
+# frontend, with a public tunnel whose URL is captured and passed to Phoenix
+# and the API.
+#
+# Ports (separate from each project's own profiles, so both can coexist):
+#   postgres 5545, phoenix 4110, node_api 3110, react_router 5310.
+#
+# Profile names here must not clash with the projects' own (setup, dev,
+# iex): from inside a project, both files' profiles are visible.
+profiles:
+  # Install every project's dependencies.
+  setup-all:
+    processes:
+      phoenix-deps:
+        kind: oneshot
+        cwd: phoenix_app
+        cmd: mix deps.get && mix compile && mix assets.setup
+        readiness: {timeout: 600s}
+      api-deps:
+        kind: oneshot
+        cwd: node_api
+        cmd: npm install --no-audit --no-fund
+        readiness: {timeout: 300s}
+      web-deps:
+        kind: oneshot
+        cwd: react_router_app
+        cmd: npm install --no-audit --no-fund
+        readiness: {timeout: 300s}
+
+  # Everything, with a real cloudflared quick tunnel (needs the network).
+  fullstack:
+    processes:
+      pg-init: &pg-init
+        kind: oneshot
+        cwd: phoenix_app
+        cmd: ../tools/pg-init .data/pg-composite
+        readiness: {timeout: 60s}
+      postgres: &postgres
+        cwd: phoenix_app
+        cmd: postgres -D .data/pg-composite -p 5545 -c listen_addresses=127.0.0.1 -c unix_socket_directories=''
+        depends_on: [pg-init]
+        readiness: {timeout: 30s, checks: [{tcp: "127.0.0.1:5545"}]}
+      migrate: &migrate
+        kind: oneshot
+        cwd: phoenix_app
+        cmd: mix ecto.create && mix ecto.migrate
+        depends_on: [postgres]
+        env: {DB_PORT: "5545", DB_NAME: phoenix_app_composite}
+        readiness: {timeout: 180s}
+      tunnel:
+        cmd: cloudflared tunnel --no-autoupdate --url http://127.0.0.1:4110
+        readiness: &tunnel-readiness
+          timeout: 60s
+          checks:
+            - capture: url
+        captures: &tunnel-captures
+          # The error line contains https://api.trycloudflare.com, so the
+          # pattern requires a generated multi-word hostname.
+          - name: url
+            log: "(https://[a-z0-9]+(?:-[a-z0-9]+)+\\.trycloudflare\\.com)"
+        fail_on: &tunnel-fail-on
+          - "failed to request quick Tunnel"
+      phoenix: &phoenix
+        cwd: phoenix_app
+        cmd: mix phx.server
+        depends_on: [migrate, tunnel]
+        env:
+          DB_PORT: "5545"
+          DB_NAME: phoenix_app_composite
+          PORT: "4110"
+          TUNNEL_URL: "${tunnel.url}"
+        fail_on:
+          - "\\*\\* \\(Mix\\) Could not start application"
+          - "eaddrinuse"
+        readiness:
+          timeout: 180s
+          checks:
+            - log: "Access PhoenixAppWeb.Endpoint at"
+            - tcp: 127.0.0.1:4110
+      api: &api
+        cwd: node_api
+        cmd: npm run dev
+        depends_on: [tunnel]
+        env:
+          PORT: "3110"
+          PUBLIC_URL: "${tunnel.url}"
+        fail_on: ["EADDRINUSE"]
+        readiness:
+          timeout: 60s
+          checks:
+            - log: "node_api listening on http://127.0.0.1:3110"
+      web: &web
+        cwd: react_router_app
+        cmd: npm run dev -- --host 127.0.0.1 --port 5310 --strictPort
+        depends_on: [api]
+        fail_on: ["Port 5310 is already in use"]
+        readiness:
+          timeout: 60s
+          checks:
+            - log: "Local: +http://127.0.0.1:5310/"
+
+  # The same stack with an ngrok tunnel (needs `ngrok config add-authtoken`).
+  fullstack-ngrok:
+    processes:
+      pg-init: *pg-init
+      postgres: *postgres
+      migrate: *migrate
+      tunnel:
+        cmd: ngrok http 4110 --log stdout --log-format logfmt
+        readiness: {timeout: 60s, checks: [{capture: url}]}
+        captures:
+          - name: url
+            log: "url=(https://[a-z0-9-]+\\.ngrok(?:-free)?\\.(?:app|dev|io))"
+        fail_on:
+          - "lvl=eror"
+          - "ERR_NGROK"
+      phoenix: *phoenix
+      api: *api
+      web: *web
+
+  # The same stack offline: the tunnel is replaced by cloudflared's real
+  # success output, so everything else can be tested without the network.
+  fullstack-offline:
+    processes:
+      pg-init: *pg-init
+      postgres: *postgres
+      migrate: *migrate
+      tunnel: &fake-tunnel-ok
+        cmd: |-
+          echo 'INF Requesting new quick Tunnel on trycloudflare.com...'; echo 'INF +--------------------------------------------------------------------------------------------+'; echo 'INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |'; echo 'INF |  https://quiet-river-blue-moon.trycloudflare.com                                           |'; echo 'INF +--------------------------------------------------------------------------------------------+'; exec sleep 86400
+        readiness: *tunnel-readiness
+        captures: *tunnel-captures
+        fail_on: *tunnel-fail-on
+      phoenix: *phoenix
+      api: *api
+      web: *web
+
+  # Production incident: the tunnel fails and its error line contains a
+  # trycloudflare.com URL. Must fail fast; nothing that needs the URL starts.
+  tunnel-fails:
+    processes:
+      pg-init: *pg-init
+      postgres: *postgres
+      migrate: *migrate
+      tunnel:
+        cmd: |-
+          echo 'INF Requesting new quick Tunnel on trycloudflare.com...'; sleep 1; echo 'ERR failed to request quick Tunnel: Post "https://api.trycloudflare.com/tunnel": context deadline exceeded'; exec sleep 86400
+        readiness: *tunnel-readiness
+        captures: *tunnel-captures
+        fail_on: *tunnel-fail-on
+      phoenix: *phoenix
+      api: *api
+      web: *web
+
+  # Production incident: a migration fails on real data. Uses its own
+  # database, recreated every time, so the migration always runs.
+  bad-migration:
+    processes:
+      pg-init: *pg-init
+      postgres: *postgres
+      migrate:
+        kind: oneshot
+        cwd: phoenix_app
+        cmd: mix ecto.drop --force-drop && mix ecto.create && mix ecto.migrate
+        depends_on: [postgres]
+        env: {DB_PORT: "5545", DB_NAME: phoenix_app_broken, BROKEN_MIGRATION: "1"}
+        readiness: {timeout: 180s}
+      tunnel: *fake-tunnel-ok
+      phoenix:
+        <<: *phoenix
+        env:
+          DB_PORT: "5545"
+          DB_NAME: phoenix_app_broken
+          PORT: "4110"
+          TUNNEL_URL: "${tunnel.url}"
+      api: *api

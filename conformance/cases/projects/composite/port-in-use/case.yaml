@@ -1,0 +1,17 @@
+name: "Composite: when Phoenix's port is taken, Phoenix fails fast and the whole stack is stopped"
+roadmap: "0.10, 0.12"
+covers: [ready-then-crash]
+project: test-projects
+requires: ["mix --version", "npm --version", "initdb --version", "test -d phoenix_app/deps", "test -d node_api/node_modules", "test -d react_router_app/node_modules"]
+timeout: 400s
+steps:
+  - spawn: |-
+      exec perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalAddr=>q(127.0.0.1),LocalPort=>4110,Listen=>5,ReuseAddr=>1) or die $!; $|=1; print qq(holding 4110\n); while($c=$s->accept){close $c}'
+    id: squatter
+  - wait_output: {id: squatter, contains: "holding 4110", timeout: 5s}
+  - start: up fullstack-offline
+  - wait_exit: {id: up, exit: 1, timeout: 240s}
+  # Bandit reports :eaddrinuse under Mix's "Could not start application".
+  - expect_output: {id: up, stream: stderr, contains: ["--- FAILED: phoenix ---", "Cause: matched fail_on /", ":eaddrinuse"]}
+  - port: {addr: "127.0.0.1:5545", open: false, timeout: 5s}
+  - port: {addr: "127.0.0.1:3110", open: false, timeout: 5s}

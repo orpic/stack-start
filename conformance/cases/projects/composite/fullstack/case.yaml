@@ -1,0 +1,17 @@
+name: "Composite with a real cloudflared quick tunnel: its URL is captured and reaches Phoenix and the API"
+roadmap: "0.10, 0.11"
+covers: [decoy-url]
+project: test-projects
+requires: ["cloudflared --version", "mix --version", "npm --version", "test -d phoenix_app/deps", "test -d node_api/node_modules", "test -d react_router_app/node_modules", "curl -s -o /dev/null --max-time 5 https://api.trycloudflare.com/"]
+timeout: 600s
+notes: "needs the network; skips without it. trycloudflare can be slow or rate-limited, in which case fail_on must fail it fast"
+steps:
+  - start: up fullstack
+  - wait_output: {id: up, stream: stdout, matches: 'tunnel +\| .*(https://[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com)', save: URL, timeout: 90s}
+  - wait_output: {id: up, stream: stderr, contains: "stackstart: all 7 processes ready", timeout: 300s}
+  - http: {url: "http://127.0.0.1:4110/tunnel", body_contains: "${URL}", timeout: 20s}
+  - http: {url: "http://127.0.0.1:3110/", body_contains: "${URL}", timeout: 20s}
+  - run: down
+    timeout: 90s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:4110", open: false, timeout: 5s}

@@ -49,7 +49,7 @@ profiles:
           PORT: "4100"
         fail_on:
           - "\\*\\* \\(Mix\\) Could not start application"
-          - "address already in use"
+          - "eaddrinuse"
         readiness:
           timeout: 120s
           checks:
@@ -71,7 +71,7 @@ profiles:
           PORT: "4100"
         fail_on:
           - "\\*\\* \\(Mix\\) Could not start application"
-          - "address already in use"
+          - "eaddrinuse"
         readiness:
           timeout: 120s
           checks:

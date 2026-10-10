@@ -2,13 +2,13 @@ import Config
 
 # Configure your database
 # stackstart runs a project-local Postgres (see stackstart.yaml); DB_PORT
-# comes from there.
+# and DB_NAME come from there.
 config :phoenix_app, PhoenixApp.Repo,
   username: "postgres",
   password: "",
   hostname: "127.0.0.1",
   port: String.to_integer(System.get_env("DB_PORT") || "5544"),
-  database: "phoenix_app_dev",
+  database: System.get_env("DB_NAME") || "phoenix_app_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: 10

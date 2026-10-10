@@ -15,5 +15,5 @@ steps:
       id: up
       stream: stderr
       contains: ["--- FAILED: phoenix ---", "Read it later with: stackstart logs phoenix"]
-      matches: 'Cause: (?:matched fail_on|process phoenix exited)'
+      matches: 'Cause: matched fail_on /'
   - port: {addr: "127.0.0.1:5544", open: false, timeout: 5s}
