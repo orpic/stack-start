@@ -74,6 +74,11 @@ func (r Reader) Run(src io.Reader, emit func(Line)) {
 		l := Sanitize(pending)
 		l.Partial = true
 		pending = pending[:0]
+		// An unfinished line that shows nothing (a spinner frame that was
+		// erased) is not a line.
+		if l.Plain == "" && !l.Cleared {
+			return
+		}
 		emit(l)
 	}
 

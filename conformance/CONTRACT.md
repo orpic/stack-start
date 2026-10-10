@@ -188,6 +188,7 @@ What a process writes is turned into lines as follows. "Console" is `up`'s stdou
 
 - Lines end at `\n`. `\r\n` is a line end.
 - `\r` inside a line keeps only the text after the last `\r` (progress bars and spinners collapse to their final text).
+- Moving the cursor to column 1 (`ESC[G`, `ESC[1G`) or erasing the whole line (`ESC[2K`) works like `\r`. A spinner frame erased this way, with nothing after it, leaves no line at all.
 - A line that hasn't ended is still shown, logged and matched once output pauses for 250 ms (prompts such as `iex(1)> `).
 - A line longer than 64 KB is split into 64 KB pieces; no byte is lost and reading never stops.
 - Screen clears become the marker line above. All other escape sequences (cursor movement, erase line, OSC titles, charset switches, cursor visibility) are removed.

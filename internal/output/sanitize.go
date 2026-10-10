@@ -41,6 +41,18 @@ func Sanitize(raw []byte) Line {
 	var console, plain bytes.Buffer
 	cleared, usedColor := false, false
 
+	// resetLine starts the line over, as a terminal does when the cursor
+	// returns to column 1 before more text is written.
+	resetLine := func() {
+		console.Reset()
+		plain.Reset()
+		if usedColor {
+			// Keep the color state: re-emitting a reset is cheaper than
+			// tracking which SGR codes are still active.
+			console.WriteString("\x1b[0m")
+		}
+	}
+
 	for i := 0; i < len(raw); {
 		b := raw[i]
 		switch {
@@ -53,17 +65,13 @@ func Sanitize(raw []byte) Line {
 				usedColor = true
 			case seqClear:
 				cleared = true
+			case seqLineReset:
+				resetLine()
 			}
 			i += n
 		case b == '\r':
 			// Everything before a bare carriage return is overwritten.
-			console.Reset()
-			plain.Reset()
-			if usedColor {
-				// Keep the color state: re-emitting a reset is cheaper than
-				// tracking which SGR codes are still active.
-				console.WriteString("\x1b[0m")
-			}
+			resetLine()
 			i++
 		case b == '\t':
 			console.WriteByte(b)
@@ -100,6 +108,10 @@ const (
 	seqOther seqKind = iota
 	seqSGR
 	seqClear
+	// seqLineReset moves the cursor to column 1 (ESC[G, ESC[1G) or erases
+	// the whole line (ESC[2K). Spinners (npm, ora, docker) draw a frame and
+	// then erase it this way instead of with a carriage return.
+	seqLineReset
 )
 
 // escapeLen returns the length of the escape sequence at the start of b and
@@ -120,6 +132,14 @@ func escapeLen(b []byte) (int, seqKind) {
 				case 'J':
 					if bytes.Equal(params, []byte("2")) || bytes.Equal(params, []byte("3")) {
 						return j + 1, seqClear
+					}
+				case 'G':
+					if len(params) == 0 || bytes.Equal(params, []byte("0")) || bytes.Equal(params, []byte("1")) {
+						return j + 1, seqLineReset
+					}
+				case 'K':
+					if bytes.Equal(params, []byte("2")) {
+						return j + 1, seqLineReset
 					}
 				}
 				return j + 1, seqOther

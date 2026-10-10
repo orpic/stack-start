@@ -1,0 +1,30 @@
+# TypeScript + Express run by `tsx watch`, like a typical Node tool server.
+# Port: 3100.
+profiles:
+  # Install dependencies and type-check/build: stackstart up setup
+  setup:
+    processes:
+      install:
+        kind: oneshot
+        cmd: npm ci --no-audit --no-fund
+        readiness: {timeout: 300s}
+      build:
+        kind: oneshot
+        cmd: npm run build
+        depends_on: [install]
+        readiness: {timeout: 120s}
+
+  dev:
+    processes:
+      api:
+        # npm -> tsx watch -> node: tsx restarts the node child on changes.
+        cmd: npm run dev
+        env:
+          PORT: "3100"
+        fail_on:
+          - "EADDRINUSE"
+        readiness:
+          timeout: 60s
+          checks:
+            - log: "node_api listening on http://127.0.0.1:3100"
+            - tcp: 127.0.0.1:3100
