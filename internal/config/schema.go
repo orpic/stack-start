@@ -23,6 +23,7 @@ type Process struct {
 	DependsOn       []string          `yaml:"depends_on,omitempty"`
 	Readiness       *Readiness        `yaml:"readiness,omitempty"`
 	Captures        []Capture         `yaml:"captures,omitempty"`
+	FailOn          []string          `yaml:"fail_on,omitempty"`
 	Templates       []Template        `yaml:"templates,omitempty"`
 	OnExit          string            `yaml:"on_exit,omitempty"`
 	Required        *bool             `yaml:"required,omitempty"`
@@ -70,6 +71,9 @@ func (r Readiness) CheckMode() string {
 type Check struct {
 	Log string `yaml:"log,omitempty"`
 	TCP string `yaml:"tcp,omitempty"`
+	// Capture names one of this process's captures; the check passes once
+	// that capture has a value.
+	Capture string `yaml:"capture,omitempty"`
 }
 
 type Capture struct {

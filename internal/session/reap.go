@@ -66,7 +66,8 @@ func ListAllSessions() ([]Record, error) {
 	return records, nil
 }
 
-// FindMatchingSessions finds sessions whose project path contains the given cwd.
+// FindMatchingSessions finds running sessions for the project containing cwd
+// (see MatchesProject).
 func FindMatchingSessions(cwd, profileFilter string) ([]Record, error) {
 	all, err := ListAllSessions()
 	if err != nil {
@@ -78,13 +79,15 @@ func FindMatchingSessions(cwd, profileFilter string) ([]Record, error) {
 		if profileFilter != "" && rec.Profile != profileFilter {
 			continue
 		}
-		// Check if cwd is within-or-equal to the session's project path
-		cleaned := filepath.Clean(cwd)
-		recPath := filepath.Clean(rec.ProjectPath)
-		if cleaned == recPath || strings.HasPrefix(cleaned, recPath+string(os.PathSeparator)) {
+		if MatchesProject(cwd, rec.ProjectPath) {
 			matches = append(matches, rec)
 		}
 	}
 
 	return matches, nil
+}
+
+// IsAlive reports whether a process with this PID exists.
+func IsAlive(pid int) bool {
+	return pid > 0 && isProcessAlive(pid)
 }

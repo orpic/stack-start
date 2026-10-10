@@ -199,7 +199,7 @@ func TestValidate_ReadinessEmptyCheck(t *testing.T) {
 	}
 	err := Validate(p, "test")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "must specify either")
+	require.Contains(t, err.Error(), "must specify one of")
 }
 
 func TestValidate_ReadinessBothLogAndTCP(t *testing.T) {
@@ -512,4 +512,52 @@ func TestProcess_IsOneshot(t *testing.T) {
 	require.True(t, Process{Kind: "oneshot"}.IsOneshot())
 	require.False(t, Process{Kind: "long-running"}.IsOneshot())
 	require.False(t, Process{Kind: ""}.IsOneshot())
+}
+
+func TestValidate_CaptureCheck(t *testing.T) {
+	p := validProfile()
+	tunnel := Process{
+		Cmd: "cloudflared tunnel --url http://localhost:4000",
+		Readiness: &Readiness{
+			Timeout: Duration{Duration: 20 * time.Second},
+			Checks:  []Check{{Capture: "url"}},
+		},
+		Captures: []Capture{{Name: "url", Log: `(https://[a-z0-9]+(?:-[a-z0-9]+)+\.trycloudflare\.com)`}},
+	}
+	p.Processes["tunnel"] = tunnel
+	require.NoError(t, Validate(p, "dev"))
+
+	tunnel.Readiness.Checks = []Check{{Capture: "nope"}}
+	p.Processes["tunnel"] = tunnel
+	err := Validate(p, "dev")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `capture "nope" is not one of this process's captures`)
+}
+
+func TestValidate_CaptureCheckExclusiveWithLog(t *testing.T) {
+	p := validProfile()
+	db := p.Processes["db"]
+	db.Readiness.Checks = []Check{{Capture: "url", Log: "x"}}
+	p.Processes["db"] = db
+	err := Validate(p, "dev")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "only one of")
+}
+
+func TestValidate_FailOn(t *testing.T) {
+	p := validProfile()
+	be := p.Processes["backend"]
+	be.FailOn = []string{"password authentication failed", "EADDRINUSE"}
+	p.Processes["backend"] = be
+	require.NoError(t, Validate(p, "dev"))
+
+	be.FailOn = []string{"(unclosed"}
+	p.Processes["backend"] = be
+	err := Validate(p, "dev")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "fail_on[0] invalid regex")
+
+	be.FailOn = []string{""}
+	p.Processes["backend"] = be
+	require.ErrorContains(t, Validate(p, "dev"), "fail_on[0] is empty")
 }

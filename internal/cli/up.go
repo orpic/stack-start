@@ -45,17 +45,6 @@ func newUpCmd() *cobra.Command {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
-			sigCh := make(chan os.Signal, 2)
-			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-			go func() {
-				<-sigCh
-				cancel()
-				<-sigCh
-				// Double Ctrl-C: force kill
-				os.Exit(130)
-			}()
-
 			orc := orchestrator.New(orchestrator.Config{
 				Profile:     profile,
 				ProfileName: profileName,
@@ -64,6 +53,23 @@ func newUpCmd() *cobra.Command {
 				LogFormat:   logFormat,
 				Quiet:       quiet,
 			})
+
+			// Children run in their own sessions, so signals sent to the
+			// terminal (Ctrl-C, closing the window) reach only stackstart.
+			// It must pass them on, or the stack is orphaned.
+			sigCh := make(chan os.Signal, 2)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
+			go func() {
+				<-sigCh
+				if !quiet {
+					fmt.Fprintln(os.Stderr, "\nstackstart: stopping all processes (Ctrl-C again to kill immediately)")
+				}
+				cancel()
+				<-sigCh
+				orc.ForceKill()
+				os.Exit(130)
+			}()
 
 			return orc.Run(ctx)
 		},

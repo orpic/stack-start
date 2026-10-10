@@ -61,7 +61,7 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 	}
 
 	if proc.Readiness != nil {
-		if err := validateReadiness(name, proc.Readiness, proc.IsOneshot()); err != nil {
+		if err := validateReadiness(name, proc.Readiness, proc.IsOneshot(), proc.Captures); err != nil {
 			return err
 		}
 	}
@@ -69,6 +69,15 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 	for i, cap := range proc.Captures {
 		if err := validateCapture(name, i, cap); err != nil {
 			return err
+		}
+	}
+
+	for i, pattern := range proc.FailOn {
+		if pattern == "" {
+			return fmt.Errorf("process %q: fail_on[%d] is empty", name, i)
+		}
+		if _, err := regexp.Compile(pattern); err != nil {
+			return fmt.Errorf("process %q: fail_on[%d] invalid regex %q: %w", name, i, pattern, err)
 		}
 	}
 
@@ -90,7 +99,7 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 	return nil
 }
 
-func validateReadiness(name string, r *Readiness, isOneshot bool) error {
+func validateReadiness(name string, r *Readiness, isOneshot bool, captures []Capture) error {
 	if r.Timeout.Duration <= 0 {
 		return fmt.Errorf("process %q: readiness.timeout is required and must be positive", name)
 	}
@@ -104,11 +113,29 @@ func validateReadiness(name string, r *Readiness, isOneshot bool) error {
 	}
 
 	for i, check := range r.Checks {
-		if check.Log == "" && check.TCP == "" {
-			return fmt.Errorf("process %q: readiness.checks[%d] must specify either 'log' or 'tcp'", name, i)
+		set := 0
+		for _, v := range []string{check.Log, check.TCP, check.Capture} {
+			if v != "" {
+				set++
+			}
 		}
-		if check.Log != "" && check.TCP != "" {
-			return fmt.Errorf("process %q: readiness.checks[%d] must specify only one of 'log' or 'tcp'", name, i)
+		if set == 0 {
+			return fmt.Errorf("process %q: readiness.checks[%d] must specify one of 'log', 'tcp' or 'capture'", name, i)
+		}
+		if set > 1 {
+			return fmt.Errorf("process %q: readiness.checks[%d] must specify only one of 'log', 'tcp' or 'capture'", name, i)
+		}
+		if check.Capture != "" {
+			found := false
+			for _, c := range captures {
+				if c.Name == check.Capture {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("process %q: readiness.checks[%d] capture %q is not one of this process's captures", name, i, check.Capture)
+			}
 		}
 		if check.Log != "" {
 			if _, err := regexp.Compile(check.Log); err != nil {

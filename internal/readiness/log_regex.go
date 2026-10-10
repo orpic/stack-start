@@ -31,3 +31,7 @@ func (c *LogRegexCheck) Evaluate(line []byte) {
 func (c *LogRegexCheck) Satisfied() bool {
 	return c.matched.Load()
 }
+
+func (c *LogRegexCheck) String() string {
+	return "log /" + c.Pattern.String() + "/"
+}

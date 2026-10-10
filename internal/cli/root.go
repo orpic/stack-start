@@ -38,6 +38,7 @@ runtime value propagation between processes.`,
 		newDownCmd(),
 		newLogsCmd(),
 		newStatusCmd(),
+		newCleanCmd(),
 	)
 
 	return root

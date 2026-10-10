@@ -33,3 +33,14 @@ func (e *Evaluator) Satisfied() bool {
 	}
 	return true
 }
+
+// Pending returns the descriptions of checks that have not passed yet.
+func (e *Evaluator) Pending() []string {
+	var out []string
+	for _, c := range e.Checks {
+		if !c.Satisfied() {
+			out = append(out, c.String())
+		}
+	}
+	return out
+}

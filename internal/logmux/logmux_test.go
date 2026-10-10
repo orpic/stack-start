@@ -73,3 +73,25 @@ func TestMux_ConcurrentConsoleWrites(t *testing.T) {
 	require.Contains(t, output, "proc1")
 	require.Contains(t, output, "proc2")
 }
+
+func TestMux_WriteLine_StripsEscapesFromFile(t *testing.T) {
+	var fileBuf, consoleBuf bytes.Buffer
+	m := New("app", 3, &fileBuf, &consoleBuf, &sync.Mutex{})
+
+	m.WriteLine([]byte("\x1b[2J\x1b[H\x1b[32mbuilt\x1b[0m"))
+
+	require.Equal(t, "built\n", fileBuf.String())
+	require.NotContains(t, consoleBuf.String(), "\x1b[2J", "screen clears must never reach the shared console")
+	require.Contains(t, consoleBuf.String(), "built")
+}
+
+func TestMux_Marker(t *testing.T) {
+	var fileBuf, consoleBuf bytes.Buffer
+	m := New("app", 3, &fileBuf, &consoleBuf, &sync.Mutex{})
+
+	m.Marker("screen cleared")
+
+	require.Equal(t, "[stackstart] screen cleared\n", fileBuf.String())
+	require.Contains(t, consoleBuf.String(), "app")
+	require.Contains(t, consoleBuf.String(), "[stackstart] screen cleared")
+}

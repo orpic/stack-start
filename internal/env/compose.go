@@ -9,8 +9,21 @@ import (
 	"github.com/orpic/stack-start/internal/interpolate"
 )
 
+// NonInteractiveDefaults are set for every process, over the inherited shell
+// env. Processes run on a terminal nobody is typing into, so a tool that
+// opens a pager because it sees a terminal (psql, git, mysql, man,
+// systemctl) would wait for a keypress forever. .envrc, .env and the env:
+// block can still override them.
+var NonInteractiveDefaults = map[string]string{
+	"PAGER":         "cat",
+	"GIT_PAGER":     "cat",
+	"PSQL_PAGER":    "cat",
+	"MANPAGER":      "cat",
+	"SYSTEMD_PAGER": "",
+}
+
 // Compose builds the final environment for a process by layering:
-// 1. Inherited shell env
+// 1. Inherited shell env, then NonInteractiveDefaults
 // 2. .envrc resolved env
 // 3. .env file
 // 4. Per-process env: block (with ${...} interpolation)
@@ -27,6 +40,9 @@ func Compose(
 		if ok {
 			envMap[k] = v
 		}
+	}
+	for k, v := range NonInteractiveDefaults {
+		envMap[k] = v
 	}
 
 	// Layer 2: .envrc

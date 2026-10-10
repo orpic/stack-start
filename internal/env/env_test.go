@@ -3,6 +3,7 @@ package env
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -75,4 +76,32 @@ func TestLoadEnvrc_NoFile(t *testing.T) {
 	env, err := LoadEnvrc(t.TempDir())
 	require.NoError(t, err)
 	require.Nil(t, env)
+}
+
+func envValue(env []string, key string) (string, bool) {
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+func TestCompose_PagersDisabledOverShellEnv(t *testing.T) {
+	t.Setenv("PAGER", "less")
+	t.Setenv("GIT_PAGER", "delta")
+	env, err := Compose(t.TempDir(), nil, nil)
+	require.NoError(t, err)
+	for _, key := range []string{"PAGER", "GIT_PAGER", "PSQL_PAGER", "MANPAGER"} {
+		v, ok := envValue(env, key)
+		require.True(t, ok, key)
+		require.Equal(t, "cat", v, key)
+	}
+}
+
+func TestCompose_ProcessEnvCanStillSetAPager(t *testing.T) {
+	env, err := Compose(t.TempDir(), map[string]string{"PAGER": "more"}, nil)
+	require.NoError(t, err)
+	v, _ := envValue(env, "PAGER")
+	require.Equal(t, "more", v)
 }
