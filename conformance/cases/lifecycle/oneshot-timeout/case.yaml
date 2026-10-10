@@ -1,0 +1,7 @@
+name: readiness.timeout bounds how long a oneshot may run
+roadmap: v0
+covers: [oneshot]
+steps:
+  - start: up p
+  - wait_exit: {id: up, exit: 1, timeout: 15s, within: 6s}
+  - expect_output: {id: up, stream: stderr, contains: ["--- FAILED: setup ---", "readiness timeout after 1s"]}

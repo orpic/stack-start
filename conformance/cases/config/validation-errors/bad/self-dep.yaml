@@ -1,0 +1,2 @@
+profiles:
+  p: {processes: {a: {cmd: x, depends_on: [a]}}}

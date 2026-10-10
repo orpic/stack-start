@@ -1,0 +1,16 @@
+profiles:
+  p:
+    processes:
+      build:
+        kind: oneshot
+        cmd: sleep 0.2; echo BUILD_DONE
+      generator:
+        kind: oneshot
+        cmd: echo TOKEN=abc123secret; echo INSTALL_DONE
+        depends_on: [build]
+        captures: [{name: token, log: "TOKEN=([a-z0-9]+)", required: true}]
+      app:
+        cmd: echo RECEIVED=$AUTH_TOKEN; exec perl -e 'sleep 300' ${TOKEN}
+        depends_on: [generator]
+        env: {AUTH_TOKEN: "${generator.token}"}
+        readiness: {timeout: 5s, checks: [{log: "RECEIVED="}]}

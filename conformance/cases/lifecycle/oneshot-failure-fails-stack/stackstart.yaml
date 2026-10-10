@@ -1,0 +1,9 @@
+profiles:
+  p:
+    processes:
+      setup:
+        kind: oneshot
+        cmd: echo FAILING; exit 1
+      app:
+        cmd: echo APP_STARTED; exec perl -e 'sleep 300' ${TOKEN}
+        depends_on: [setup]

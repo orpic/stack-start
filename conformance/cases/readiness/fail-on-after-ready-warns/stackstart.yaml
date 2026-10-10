@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: echo up; sleep 0.3; echo 'password authentication failed for user'; exec perl -e 'sleep 300' ${TOKEN}
+        fail_on: ["password authentication failed"]
+        readiness: {timeout: 5s, checks: [{log: "^up$"}]}

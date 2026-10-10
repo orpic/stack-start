@@ -1,0 +1,10 @@
+name: a process starts only after its dependencies are ready (chain and diamond)
+roadmap: v0
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "all 5 processes ready", timeout: 10s}
+  - expect_output: {id: up, stream: stdout, in_order: ["DB_READY", "API_STARTED", "WEB_STARTED"]}
+  - expect_output: {id: up, stream: stdout, in_order: ["CACHE_READY", "API_STARTED"]}
+  - expect_output: {id: up, stream: stdout, in_order: ["API_STARTED", "WORKER_STARTED"]}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}

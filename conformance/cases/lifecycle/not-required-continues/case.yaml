@@ -1,0 +1,9 @@
+name: a failing process with required false is reported and the stack keeps running
+roadmap: v0
+steps:
+  - start: up p
+  - wait_output: {id: up, stream: stderr, contains: "stackstart: optional failed (not required, continuing): ", timeout: 10s}
+  - wait_output: {id: up, contains: "KEEPER_READY", timeout: 5s}
+  - alive: {id: up, for: 1s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}

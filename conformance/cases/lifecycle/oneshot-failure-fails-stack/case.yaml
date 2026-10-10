@@ -1,0 +1,9 @@
+name: a oneshot that exits non-zero fails the stack and its dependents never start
+roadmap: v0
+covers: [oneshot]
+steps:
+  - run: up p
+    expect:
+      exit: 1
+      stderr_contains: ["--- FAILED: setup ---", "Cause: oneshot process failed: exit status 1", "Last output:\n  FAILING\n"]
+      stdout_not_contains: APP_STARTED

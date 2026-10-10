@@ -1,0 +1,10 @@
+name: a fail_on match after ready is a warning and the stack keeps running
+roadmap: "0.10"
+steps:
+  - start: up p
+  - wait_output: {id: up, stream: stdout, contains: "app | [stackstart] warning: matched fail_on /password authentication failed/ after the process was ready", timeout: 8s}
+  - alive: {id: up, for: 500ms}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs app
+    expect: {stdout_equals: "up\npassword authentication failed for user\n[stackstart] warning: matched fail_on /password authentication failed/ after the process was ready\n"}

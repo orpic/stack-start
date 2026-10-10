@@ -1,0 +1,6 @@
+name: validate accepts a valid profile
+steps:
+  - run: validate dev
+    expect: {stdout_equals: "Profile \"dev\" from ${WORK}/stackstart.yaml is valid.\n"}
+  - run: validate dev --config ${WORK}/stackstart.yaml
+    expect: {stdout_equals: "Profile \"dev\" from ${WORK}/stackstart.yaml is valid.\n"}

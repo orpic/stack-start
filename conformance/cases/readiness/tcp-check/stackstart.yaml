@@ -1,0 +1,8 @@
+profiles:
+  p:
+    processes:
+      server:
+        # Like Postgres or Redis: one line, then open the port and say nothing.
+        cmd: |-
+          echo booting; exec perl -MIO::Socket::INET -e 'sleep 1; $s=IO::Socket::INET->new(LocalAddr=>q(127.0.0.1),LocalPort=>$ARGV[0],Listen=>5,ReuseAddr=>1) or die $!; while($c=$s->accept){close $c}' ${PORT_web} ${TOKEN}
+        readiness: {timeout: 10s, checks: [{tcp: "127.0.0.1:${PORT_web}"}]}

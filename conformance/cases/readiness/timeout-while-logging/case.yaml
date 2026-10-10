@@ -1,0 +1,8 @@
+name: the readiness timeout fires on time while the process keeps logging
+roadmap: "0.4"
+covers: [never-ready]
+notes: "fails on v0.2.3: the timeout was only checked between lines and the ready/failed decision could race"
+steps:
+  - start: up p
+  - wait_exit: {id: up, exit: 1, timeout: 15s, within: 6s}
+  - expect_output: {id: up, stream: stderr, contains: "readiness timeout after 1s; still waiting for log /will never appear/"}

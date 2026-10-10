@@ -342,7 +342,7 @@ func (s *Supervisor) waitLoop() {
 	}
 	s.settled.Store(true)
 	if err != nil {
-		s.emitEvent(StateExited, fmt.Errorf("process exited: %w", err))
+		s.emitEvent(StateExited, err)
 	} else {
 		s.emitEvent(StateExited, nil)
 	}

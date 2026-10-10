@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: echo NOT_THE_SIGNAL; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 2s, checks: [{log: WILL_NEVER_APPEAR}]}

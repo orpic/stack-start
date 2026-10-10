@@ -1,0 +1,11 @@
+name: fail_on fails a process at once and its error URL is never captured
+roadmap: "0.10, 0.11"
+covers: [decoy-url]
+notes: "fails on v0.2.3: no fail_on, and the README regex captured https://api.trycloudflare.com from the error line"
+steps:
+  - start: up p
+  - wait_exit: {id: up, exit: 1, timeout: 15s, within: 5s}
+  - expect_output:
+      id: up
+      contains: ["--- FAILED: cloudflared ---", "Cause: matched fail_on /failed to request quick Tunnel/: ERR failed to request quick Tunnel"]
+      not_contains: ["backend got", "backend |"]

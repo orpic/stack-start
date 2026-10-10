@@ -1,0 +1,5 @@
+name: list shows every profile and the file it comes from
+steps:
+  - run: list
+    expect:
+      stdout_contains: ["Available profiles:", "dev", "staging", "(from ${WORK}/stackstart.yaml)"]

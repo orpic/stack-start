@@ -1,0 +1,5 @@
+name: --help lists every command
+steps:
+  - run: --help
+    expect:
+      stdout_contains: [up, down, status, logs, validate, list, init, clean, version]

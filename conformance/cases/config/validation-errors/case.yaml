@@ -1,0 +1,82 @@
+name: every invalid config is rejected with its documented message
+roadmap: contract
+notes: "one step per row of CONTRACT.md 'Validation errors'; up must reject the same files"
+steps:
+  - run: validate p --config ${WORK}/bad/no-profiles-key.yaml
+    expect: {exit: 1, stderr_contains: '${WORK}/bad/no-profiles-key.yaml: no ''profiles'' key found'}
+  - run: validate p --config ${WORK}/bad/no-processes.yaml
+    expect: {exit: 1, stderr_contains: 'profile "p" has no processes defined'}
+  - run: validate p --config ${WORK}/bad/bad-kind.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": kind must be ''oneshot'' or ''long-running'', got "daemon"'}
+  - run: validate p --config ${WORK}/bad/no-cmd.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": ''cmd'' is required'}
+  - run: validate p --config ${WORK}/bad/absolute-cwd.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": ''cwd'' must be relative to project_path, got absolute path "/absolute/path"'}
+  - run: validate p --config ${WORK}/bad/unknown-dep.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": depends_on references unknown process "ghost"'}
+  - run: validate p --config ${WORK}/bad/self-dep.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": cannot depend on itself'}
+  - run: validate p --config ${WORK}/bad/cycle.yaml
+    expect: {exit: 1, stderr_contains: 'dependency cycle detected: '}
+  - run: validate p --config ${WORK}/bad/bad-on-exit.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": on_exit must be ''fail'' or ''ignore'', got "restart"'}
+  - run: validate p --config ${WORK}/bad/empty-fail-on.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": fail_on[1] is empty'}
+  - run: validate p --config ${WORK}/bad/bad-fail-on.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": fail_on[0] invalid regex "("'}
+  - run: validate p --config ${WORK}/bad/template-no-src.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": template[0] missing ''src'''}
+  - run: validate p --config ${WORK}/bad/template-no-dst.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": template[0] missing ''dst'''}
+  - run: validate p --config ${WORK}/bad/template-abs-src.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": template[0] ''src'' must be relative, got "/etc/hosts"'}
+  - run: validate p --config ${WORK}/bad/template-abs-dst.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": template[0] ''dst'' must be relative, got "/tmp/out.txt"'}
+  - run: validate p --config ${WORK}/bad/no-timeout.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": readiness.timeout is required and must be positive'}
+  - run: validate p --config ${WORK}/bad/bad-mode.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": readiness.mode must be ''any'' or ''all'', got "some"'}
+  - run: validate p --config ${WORK}/bad/no-checks.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": readiness.checks must contain at least one check'}
+  - run: validate p --config ${WORK}/bad/check-no-kind.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": readiness.checks[0] must specify one of ''log'', ''tcp'' or ''capture'''}
+  - run: validate p --config ${WORK}/bad/check-two-kinds.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": readiness.checks[0] must specify only one of ''log'', ''tcp'' or ''capture'''}
+  - run: validate p --config ${WORK}/bad/check-unknown-capture.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": readiness.checks[0] capture "url" is not one of this process''s captures'}
+  - run: validate p --config ${WORK}/bad/bad-log-regex.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": readiness.checks[0] invalid log regex "a[b"'}
+  - run: validate p --config ${WORK}/bad/bad-tcp.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": readiness.checks[0] tcp must be ''host:port'', got "localhost"'}
+  - run: validate p --config ${WORK}/bad/capture-no-name.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": captures[0] missing ''name'''}
+  - run: validate p --config ${WORK}/bad/capture-no-log.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": captures[0] missing ''log'''}
+  - run: validate p --config ${WORK}/bad/capture-bad-regex.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": captures[0] invalid log regex "(x"'}
+  - run: validate p --config ${WORK}/bad/capture-no-group.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": captures[0] regex must have exactly 1 capturing group, got 0'}
+  - run: validate p --config ${WORK}/bad/capture-two-groups.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": captures[0] regex must have exactly 1 capturing group, got 2'}
+  - run: validate p --config ${WORK}/bad/ref-malformed.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": invalid reference ${nodot} (expected ${process.capture})'}
+  - run: validate p --config ${WORK}/bad/ref-unknown-process.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": reference ${ghost.url} refers to unknown process "ghost"'}
+  - run: validate p --config ${WORK}/bad/ref-unknown-capture.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": reference ${t.port} refers to unknown capture "port" on process "t"'}
+  - run: validate p --config ${WORK}/bad/bad-duration.yaml
+    expect: {exit: 1, stderr_contains: 'invalid duration "soon"'}
+  - run: validate p --config ${WORK}/bad/ref-in-cmd.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": reference ${ghost.url} refers to unknown process "ghost"'}
+  - run: up p --config ${WORK}/bad/no-profiles-key.yaml
+    expect: {exit: 1, stderr_contains: '${WORK}/bad/no-profiles-key.yaml: no ''profiles'' key found'}
+  - run: up p --config ${WORK}/bad/no-processes.yaml
+    expect: {exit: 1, stderr_contains: 'profile "p" has no processes defined'}
+  - run: up p --config ${WORK}/bad/bad-kind.yaml
+    expect: {exit: 1, stderr_contains: 'process "a": kind must be ''oneshot'' or ''long-running'', got "daemon"'}
+  - run: up p --config ${WORK}/bad/cycle.yaml
+    expect: {exit: 1, stderr_contains: 'dependency cycle detected: '}
+  - run: validate nope --config ${WORK}/bad/cycle.yaml
+    expect: {exit: 1, stderr_contains: 'profile "nope" not found in ${WORK}/bad/cycle.yaml (available: p)'}
+  - run: validate nope
+    expect: {exit: 1, stderr_contains: "no profile named \"nope\" applies to directory ${WORK}; run 'stackstart list' to see available profiles, or 'stackstart init' to create one"}

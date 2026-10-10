@@ -41,7 +41,7 @@ var stepFields = map[string][]string{
 
 // mapFields lists the fields of steps whose value is a mapping.
 var mapFields = map[string][]string{
-	"wait_output":   {"id", "stream", "contains", "matches", "count", "timeout"},
+	"wait_output":   {"id", "stream", "contains", "matches", "count", "timeout", "save"},
 	"expect_output": append([]string{"id", "stream"}, keys(assertionNames)...),
 	"wait_exit":     {"id", "exit", "timeout", "within"},
 	"alive":         {"id", "for"},
@@ -144,6 +144,7 @@ func (r *caseRun) runStep(ctx context.Context, step map[string]any) error {
 	if err != nil {
 		return err
 	}
+	step = substituteSaved(step, r.saved).(map[string]any)
 	var p params
 	if fields, isMap := mapFields[kind]; isMap {
 		m, ok := step[kind].(map[string]any)
@@ -375,14 +376,14 @@ func (r *caseRun) stepWaitOutput(ctx context.Context, p params) error {
 	}
 	var match func(string) bool
 	var what string
+	var re *regexp.Regexp
 	switch {
 	case p.has("contains"):
 		s := p.str("contains")
 		what = fmt.Sprintf("%q", s)
 		match = func(t string) bool { return strings.Count(t, s) >= want }
 	case p.has("matches"):
-		re, err := regexp.Compile(p.str("matches"))
-		if err != nil {
+		if re, err = regexp.Compile(p.str("matches")); err != nil {
 			return err
 		}
 		what = "/" + p.str("matches") + "/"
@@ -393,14 +394,28 @@ func (r *caseRun) stepWaitOutput(ctx context.Context, p params) error {
 	if want > 1 {
 		what = fmt.Sprintf("%s %d times", what, want)
 	}
+	save := p.str("save")
+	if save != "" && (re == nil || re.NumSubexp() < 1) {
+		return fmt.Errorf("save needs 'matches' with a capturing group")
+	}
+	done := func() bool {
+		text := c.out.get(st)
+		if !match(text) {
+			return false
+		}
+		if save != "" {
+			r.saved[save] = re.FindStringSubmatch(text)[1]
+		}
+		return true
+	}
 	deadline := time.Now().Add(timeout)
 	for {
-		if match(c.out.get(st)) {
+		if done() {
 			return nil
 		}
 		if c.finished() {
 			// One last look: output may have arrived just before exit.
-			if match(c.out.get(st)) {
+			if done() {
 				return nil
 			}
 			return fmt.Errorf("%s exited (code %d) without printing %s on %s", c.id, c.code, what, st)
@@ -690,4 +705,32 @@ func (r *caseRun) stepSleep(ctx context.Context, p params) error {
 	case <-ctx.Done():
 		return errCaseTimeout
 	}
+}
+
+var savedPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+// substituteSaved replaces ${NAME} with values saved by earlier steps.
+func substituteSaved(v any, saved map[string]string) any {
+	switch x := v.(type) {
+	case string:
+		return savedPattern.ReplaceAllStringFunc(x, func(m string) string {
+			if val, ok := saved[m[2:len(m)-1]]; ok {
+				return val
+			}
+			return m
+		})
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			out[k] = substituteSaved(e, saved)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = substituteSaved(e, saved)
+		}
+		return out
+	}
+	return v
 }

@@ -1,0 +1,5 @@
+name: list with no config says how to create one
+steps:
+  - run: list
+    expect:
+      stdout_equals: "No profiles found for the current directory context.\nRun 'stackstart init' to create a stackstart.yaml.\n"

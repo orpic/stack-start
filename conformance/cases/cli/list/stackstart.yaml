@@ -1,0 +1,7 @@
+profiles:
+  dev:
+    processes:
+      app: {cmd: echo hi}
+  staging:
+    processes:
+      app: {cmd: echo hi}

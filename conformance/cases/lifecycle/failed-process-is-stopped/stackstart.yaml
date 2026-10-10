@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: exec perl -e '$|=1; while(1){print "still booting\n"; select(undef,undef,undef,0.1)}' ${TOKEN}
+        readiness: {timeout: 1s, checks: [{log: never}]}

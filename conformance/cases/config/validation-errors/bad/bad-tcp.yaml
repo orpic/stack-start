@@ -1,0 +1,2 @@
+profiles:
+  p: {processes: {a: {cmd: x, readiness: {timeout: 5s, checks: [{tcp: "localhost"}]}}}}

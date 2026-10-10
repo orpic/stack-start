@@ -1,0 +1,9 @@
+profiles:
+  p:
+    processes:
+      ephemeral:
+        cmd: echo EPHEMERAL_DONE; sleep 0.5; exit 3
+        on_exit: ignore
+      keeper:
+        cmd: echo KEEPER_READY; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: KEEPER_READY}]}

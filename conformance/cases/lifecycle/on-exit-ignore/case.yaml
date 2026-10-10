@@ -1,0 +1,9 @@
+name: a process with on_exit ignore may exit without stopping the stack
+roadmap: v0
+steps:
+  - start: up p
+  - wait_output: {id: up, stream: stdout, contains: "ephemeral | EPHEMERAL_DONE", timeout: 5s}
+  - wait_output: {id: up, contains: "KEEPER_READY", timeout: 5s}
+  - alive: {id: up, for: 2s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}

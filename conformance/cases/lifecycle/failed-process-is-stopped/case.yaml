@@ -1,0 +1,8 @@
+name: a process that failed readiness but is still running is stopped
+roadmap: "0.12"
+notes: "fails on v0.2.3: the failed process was left running"
+steps:
+  - run: up p
+    timeout: 15s
+    expect: {exit: 1, stderr_contains: "readiness timeout after 1s"}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

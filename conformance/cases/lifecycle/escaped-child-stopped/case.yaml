@@ -1,0 +1,11 @@
+name: a descendant that left the process group (setsid, BEAM ports) is stopped too
+roadmap: "0.14"
+covers: [group-escape]
+notes: "fails on v0.2.3: the setsid child survived down"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
+  - process: {matches: "^perl -e sleep 300 escaped-${TOKEN}", count: 1, timeout: 5s}
+  - run: down
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

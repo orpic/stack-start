@@ -1,0 +1,13 @@
+name: a oneshot with checks is ready when it exits 0 with its checks passed, and fails otherwise
+roadmap: v0
+covers: [oneshot]
+steps:
+  - start: up ok
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 10s}
+  - expect_output: {id: up, stream: stdout, in_order: ["BUILD_COMPLETE", "EXTRA_OUTPUT", "APP_UP"]}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: up bad
+    expect:
+      exit: 1
+      stderr_contains: "Cause: oneshot process exited before readiness checks passed; still waiting for log /BUILD_COMPLETE/"

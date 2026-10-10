@@ -1,0 +1,19 @@
+profiles:
+  p:
+    processes:
+      db:
+        cmd: sleep 0.5; echo DB_READY; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: DB_READY}]}
+      cache:
+        cmd: sleep 0.2; echo CACHE_READY; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: CACHE_READY}]}
+      api:
+        cmd: echo API_STARTED; sleep 0.3; echo API_READY; exec perl -e 'sleep 300' ${TOKEN}
+        depends_on: [db, cache]
+        readiness: {timeout: 5s, checks: [{log: API_READY}]}
+      web:
+        cmd: echo WEB_STARTED; exec perl -e 'sleep 300' ${TOKEN}
+        depends_on: [api]
+      worker:
+        cmd: echo WORKER_STARTED; exec perl -e 'sleep 300' ${TOKEN}
+        depends_on: [api]

@@ -1,0 +1,7 @@
+name: a process that exits before it is ready fails the stack, even with exit 0
+roadmap: v0
+steps:
+  - run: up p
+    expect: {exit: 1, stderr_contains: ["--- FAILED: app ---", "Cause: process app exited before becoming ready (exit 0)"]}
+  - run: up q
+    expect: {exit: 1, stderr_contains: ["Cause: process app exited before becoming ready: exit status 7"]}

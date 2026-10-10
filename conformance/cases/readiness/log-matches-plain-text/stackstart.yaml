@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: printf '\033[32mdownloading\033[0m 30%%\r\033[Kdownloaded\n'; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 3s, checks: [{log: "^downloaded$"}]}

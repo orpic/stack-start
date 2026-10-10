@@ -1,0 +1,17 @@
+profiles:
+  p:
+    processes:
+      producer:
+        cmd: echo URL=https://test-tunnel.example.com; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: "URL="}]}
+        captures:
+          - name: url
+            log: "URL=(https://[a-z-]+\\.example\\.com)"
+            required: true
+      consumer:
+        cmd: echo ENV=$TUNNEL_URL; echo CMD=${producer.url}; echo FILE=$(cat out/config.txt); exec perl -e 'sleep 300' ${TOKEN}
+        depends_on: [producer]
+        env:
+          TUNNEL_URL: "${producer.url}"
+        templates: [{src: config.tmpl, dst: out/config.txt}]
+        readiness: {timeout: 5s, checks: [{log: "FILE="}]}

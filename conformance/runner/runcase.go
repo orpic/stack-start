@@ -49,6 +49,7 @@ type caseRun struct {
 	token    string
 	ports    map[string]int
 	cmds     map[string]*command
+	saved    map[string]string
 	order    []*command
 	tracker  *Tracker
 	restores map[string]*[]byte // project files to restore: path -> original (nil = delete)
@@ -65,7 +66,7 @@ func runCase(ctx context.Context, c *Case, opts Options) (res Result) {
 		return res
 	}
 
-	r := &caseRun{c: c, opts: opts, cmds: map[string]*command{}, restores: map[string]*[]byte{}, tracker: NewTracker()}
+	r := &caseRun{c: c, opts: opts, cmds: map[string]*command{}, saved: map[string]string{}, restores: map[string]*[]byte{}, tracker: NewTracker()}
 	r.token = "ssc" + randomHex(6)
 
 	base, err := os.MkdirTemp(opts.WorkRoot, "ssc-")

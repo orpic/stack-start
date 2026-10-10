@@ -1,0 +1,13 @@
+name: a captured value reaches a dependent's env, cmd and templates
+roadmap: v0
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 10s}
+  - expect_output:
+      id: up
+      stream: stdout
+      contains: ["consumer | ENV=https://test-tunnel.example.com", "consumer | CMD=https://test-tunnel.example.com", "consumer | FILE=url is https://test-tunnel.example.com"]
+  - sh: cat out/config.txt
+    expect: {stdout_equals: "url is https://test-tunnel.example.com\n"}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}

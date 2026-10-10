@@ -1,0 +1,12 @@
+name: a profile made only of oneshots exits 0 when they finish
+roadmap: "0.15"
+covers: [oneshot]
+notes: "fails on v0.2.3: up never exited"
+steps:
+  - run: up p
+    timeout: 10s
+    expect:
+      stdout_in_order: ["migrate | migrated", "seed    | seeded"]
+      stderr_contains: "stackstart: all processes finished"
+  - run: logs seed
+    expect: {stdout_equals: "seeded\n", stderr_contains: "==> seed · p · ${WORK} · last run "}
