@@ -82,10 +82,15 @@ profiles:
         readiness:
           timeout: 20s
           checks:
-            - log: "https://[a-z0-9-]+\\.trycloudflare\\.com"
+            - capture: url          # ready once the URL below is captured
         captures:
           - name: url
-            log: "(https://[a-z0-9-]+\\.trycloudflare\\.com)"
+            # Real quick-tunnel hosts are several dash-separated words. This
+            # does not match https://api.trycloudflare.com, which appears in
+            # cloudflared's own error lines.
+            log: "(https://[a-z0-9]+(?:-[a-z0-9]+)+\\.trycloudflare\\.com)"
+        fail_on:
+          - "failed to request quick Tunnel"   # fail now, not at the timeout
 
       backend:
         cwd: packages/backend
@@ -128,8 +133,19 @@ web         | VITE v5.0.0  ready in 423 ms
 
 ```bash
 stackstart status          # see what's running
-stackstart logs backend    # tail the backend's log
-stackstart down            # gracefully stop everything
+stackstart logs backend    # recent lines, then follow (or the last run's full log if stopped)
+stackstart down            # stop everything and wait until it has stopped
+```
+
+Every run keeps its logs, even after a crash. When something fails, the error ends with the log path and the command to read it:
+
+```text
+--- FAILED: backend ---
+Cause: process backend exited before becoming ready: process exited: exit status 1
+Last output:
+  ** (Postgrex.Error) column "organization_id" contains null values
+Full log: ~/Library/Application Support/stackstart/sessions/<project>__dev/runs/20261010-221157-123/backend.log
+Read it later with: stackstart logs backend
 ```
 
 ### 4. Commit `stackstart.yaml` to git
@@ -150,14 +166,18 @@ indicate each service is ready, and whether any runtime values (like
 tunnel URLs) need to flow between services. Then generate a stackstart.yaml.
 
 Tips for generating stackstart configs:
-- Prefer tcp: host:port readiness checks for services on a known port
-  (more reliable than log matching through a PTY).
+- Prefer tcp: host:port readiness checks for services on a known port.
 - Use log: "pattern" checks when gating on a specific event (like
-  "migrations complete") that happens before the port opens.
-- Keep log regexes simple. PTY output may contain ANSI escape codes
-  and Unicode characters that break complex patterns.
+  "migrations complete") that happens before the port opens. Patterns
+  match the visible text: colors and terminal codes are removed first.
+- Behind Docker's port proxy a tcp check passes before the service
+  listens; gate on the service's own "listening" log line instead.
 - For captures (like extracting a cloudflared tunnel URL), the regex
-  must have exactly one capturing group.
+  must have exactly one capturing group. Use "- capture: <name>" as the
+  readiness check instead of repeating the regex.
+- Add fail_on: [patterns] for known fatal lines, so startup fails at
+  once instead of at the timeout.
+- Use kind: oneshot for steps that run and exit (migrations, builds).
 - Project-level stackstart.yaml (committed to repo): paths are relative
   to the file's directory, no project_path field needed.
 - User-level ~/stackstart.yaml (personal/company projects): requires an
@@ -167,13 +187,15 @@ Tips for generating stackstart configs:
 ## Key features
 
 - **Dependency ordering** - processes start in the right order based on a declared dependency graph. Siblings with no dependency between them start in parallel.
-- **Readiness gates** - a process isn't "ready" until it matches a log regex or opens a TCP port. Dependents wait for real readiness, not just PID existence.
+- **Readiness gates** - a process isn't "ready" until it matches a log regex, opens a TCP port, or produces a captured value. Prompts without a newline (`iex(1)>`) count. Dependents wait for real readiness, not just PID existence, and every readiness timeout fires on time.
+- **Fail fast** - `fail_on:` patterns fail a process the moment a known fatal line appears.
 - **Runtime value propagation** - capture values from a process's log output (e.g. a tunnel URL) and inject them into dependent processes via `${producer.capture_name}` references in env vars or command args.
 - **Named profiles** - define `dev`, `minimal`, `tooling`, etc. in one file. Run the one you need: `stackstart up minimal`.
 - **Git-style config lookup** - stackstart walks from your current directory upward looking for `stackstart.yaml`, then checks `~/stackstart.yaml`. The most specific match wins. No manual `--config` flag needed.
 - **Cross-shell visibility** - `stackstart status`, `stackstart logs`, and `stackstart down` work from any terminal, not just the one running `up`.
 - **Clear failure attribution** - when something fails, you get one root-cause line naming the process and the check that failed.
-- **Graceful shutdown** - Ctrl-C tears down all processes in reverse dependency order. A second Ctrl-C force-kills everything immediately.
+- **Graceful shutdown** - Ctrl-C, `stackstart down`, or closing the terminal tears down all processes in reverse dependency order, including children that left the process group (BEAM port programs, `setsid`). A second Ctrl-C force-kills everything immediately.
+- **Readable, persistent logs** - one shared console where rebuilds that clear the screen (tsc, vite, bun, nodemon) show a `[stackstart] screen cleared` marker instead of wiping everyone's output. Each run's logs are kept as plain text plus a raw copy, and the last 10 runs are kept.
 - **Environment composition** - layer env vars from `.envrc` (via direnv), `.env` files, per-process `env:` blocks, and captured runtime values, with clear precedence rules.
 - **Share-friendly** - no absolute paths inside process definitions. Commit `stackstart.yaml` to git; it works on every teammate's machine.
 
@@ -181,13 +203,16 @@ Tips for generating stackstart configs:
 
 ```text
 stackstart up <profile>       Start the named profile
-stackstart down                Stop the running stack (from any shell)
+stackstart down                Stop the running stack and wait until it has stopped (from any shell)
 stackstart status              Show running sessions and process states
-stackstart logs <process>      Tail a process's log (from any shell)
+stackstart logs <process>      Show a process's log: live, or the last run's after it stopped
+stackstart clean               Delete the logs of finished runs (--all, --dry-run)
 stackstart list                List profiles available from current directory
 stackstart validate <profile>  Check config without running anything
 stackstart init                Scaffold a starter stackstart.yaml
 ```
+
+See [ROADMAP.md](ROADMAP.md) for what's next: per-process restart, `up -d`, `wait`, `--json` everywhere, and `exec`.
 
 ## Configuration reference
 

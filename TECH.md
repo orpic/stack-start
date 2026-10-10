@@ -111,7 +111,12 @@ stack-start/
       supervisor.go            # high-level lifecycle (start, watch, stop)
       pty_unix.go              # creack/pty spawn under build tag `unix`
       pgid_unix.go             # SysProcAttr Setpgid + group signal helpers
-      signal.go                # SIGINT/SIGTERM catcher + double-Ctrl-C escape
+      signal.go                # graceful stop / force kill of a whole process tree
+    output/                    # PTY bytes -> sanitized lines
+      reader.go                # unlimited line reader, partial-line flush, raw tee
+      sanitize.go              # \r handling, escape-code stripping, clear detection
+    proctree/                  # descendants by parent PID (/proc or ps)
+      proctree.go
     readiness/                 # readiness check implementations
       check.go                 # Check interface + result types
       log_regex.go             # log-regex check
@@ -123,10 +128,11 @@ stack-start/
     session/                   # cross-shell session record + locking
       record.go                # session JSON schema + read/write
       lock.go                  # flock acquire/release
-      reap.go                  # stale-record GC (PID-not-alive cleanup)
+      reap.go                  # stale-record GC (PID-not-alive cleanup), session matching
+      runs.go                  # per-run directories, run.json, retention, MatchesProject
       paths.go                 # XDG_STATE_HOME path resolution
-    logmux/                    # PTY -> log file + colored console fan-out
-      mux.go                   # tee-style writer to multiple sinks
+    logmux/                    # sanitized lines -> plain log file + colored console
+      mux.go                   # writer for lines and [stackstart] marker lines
       color.go                 # stable per-process color assignment
       prefix.go                # "<name> | <line>" formatting
     tail/                      # native log-file tailing for `stackstart logs`
@@ -136,6 +142,9 @@ stack-start/
   e2e/                         # end-to-end tests
     fixtures/                  # YAML profiles for e2e tests
     e2e_test.go                # build binary, run real `stackstart up`
+    phase0_test.go             # ecosystem-behavior tests against fakeproc fixtures
+    realworld_test.go          # same guarantees against real tools (tag: realworld)
+    fakeproc/                  # fixture program reproducing real process behaviors
   .github/
     workflows/
       ci.yaml                  # PR: vet + test + golangci-lint
@@ -184,11 +193,14 @@ profiles:
           mode: any | all                  # optional, default: all
           checks:                          # required if `readiness` block exists
             - log: <regex>                 # OR
-            - tcp: <host:port>
+            - tcp: <host:port>             # OR
+            - capture: <capture name>      # ready once that capture has a value
         captures:                          # optional
           - name: <identifier>
             log: <regex with capture group>
             required: true | false         # optional, default: true
+        fail_on: [<regex>, ...]            # optional; during startup a match fails the
+                                           # process at once; after ready it is a warning
         templates:                         # optional
           - src: <relative path>
             dst: <relative path>
@@ -494,6 +506,8 @@ func signalGroup(pid int, sig syscall.Signal) error {
 
 This is the difference between "node and webpack die when you Ctrl-C" and "node dies but webpack lingers as a zombie eating a port" - a real source of pain in hand-rolled supervisors.
 
+The group is not the whole tree, though. Children can leave it: the BEAM starts every port program (Phoenix's esbuild and tailwind watchers) through `erl_child_setup` in a new process group, and anything that calls `setsid` or daemonises does the same. Before signalling, stackstart therefore snapshots the process's descendants by parent PID (`internal/proctree`: `/proc` on Linux, `ps` elsewhere). Descendants outside the group get the same SIGTERM, share the grace period, and get SIGKILL with the group. The snapshot has to come first: once their parent exits they are re-parented to PID 1 and can no longer be traced.
+
 ### 8.3 Lifecycle states
 
 A supervised process moves through these states, written into the per-process state file (see section 11):
@@ -505,6 +519,8 @@ A supervised process moves through these states, written into the per-process st
 - `exited` - exited cleanly post-ready (with `on_exit: ignore`). Not used for oneshot processes.
 
 State transitions are emitted onto the central `events` channel; the orchestrator reacts to `ready` events to release dependents. For oneshot processes, the `ready` event is emitted only from the wait loop (after exit code is known), never from the scan loop.
+
+`up` ends with exit 0 once every process has finished: exited, failed while not required, or a oneshot that completed. A profile made only of oneshots (migrate, then seed) therefore runs to completion and exits instead of waiting forever.
 
 ### 8.4 Signal handling and orchestrated shutdown
 
@@ -528,10 +544,14 @@ flowchart TD
     kill --> next
     next --> done{All processes stopped?}
     done -- no --> loop
-    done -- yes --> cleanup[Release flock, delete session record, exit 0/non-0]
+    done -- yes --> cleanup["Record outcome in run.json, release flock, delete session record (keep logs), exit 0/non-0"]
 ```
 
-The double-Ctrl-C escape is critical UX: if a child ignores SIGTERM (broken signal handler, infinite loop in shutdown hook), the user can press Ctrl-C again to force-kill everything immediately rather than wait out N processes' worth of `stop_grace_period`.
+The double-Ctrl-C escape is critical UX: if a child ignores SIGTERM (broken signal handler, infinite loop in shutdown hook), the user can press Ctrl-C again to force-kill everything immediately rather than wait out N processes' worth of `stop_grace_period`. The second signal SIGKILLs every process group and escaped descendant before stackstart exits with 130; exiting alone would orphan them, because children run in their own sessions and never receive the terminal's signals.
+
+SIGHUP (the terminal window was closed) is handled like SIGTERM. Go's default for SIGHUP is to exit, which would leave the whole stack running with nobody supervising it.
+
+Any process that is still alive is stopped during shutdown, whatever its state. In particular, a process that failed its readiness check is usually still running and must be stopped too.
 
 ### 8.5 Shutdown ordering
 
@@ -543,42 +563,28 @@ In practice the per-process shutdowns kick off in parallel within each "layer" o
 
 Readiness checks and captures both operate on the **merged PTY output stream** of a single process. They are evaluated together, per line, by a single line scanner per process.
 
-### 9.1 Per-line scanner
+### 9.1 Output reader and readiness loop
 
-```go
-// inside supervisor goroutine for a process
-scanner := bufio.NewScanner(ptyMaster)
-for scanner.Scan() {
-    line := scanner.Bytes()
+Each supervisor runs three goroutines: an output pump, a readiness loop, and a wait loop.
 
-    // Tee to logmux (file + console)
-    logmux.Write(line)
+**Output pump** (`internal/output`). Reads the PTY until it closes and **never stops early**: a process whose output is not drained blocks on its next write. It replaced a `bufio.Scanner`, whose 64 KB line limit silently stopped all reading (and froze the process) on the first long line. The reader:
 
-    // Evaluate against all readiness checks
-    for _, check := range readinessChecks {
-        check.Evaluate(line)
-    }
+- tees every byte, unmodified, to `<process>.raw.log`;
+- splits lines on `\n` and emits lines longer than 64 KB in chunks;
+- flushes an unfinished line after 250 ms of silence, so prompts that never end in a newline (`iex(1)> `, `Ok to proceed? (y) `) reach readiness checks, captures and the log;
+- sanitizes each line (`output.Sanitize`): resolves `\r` the way a terminal would (CRLF, spinner frames), removes every escape sequence for the plain text, and keeps only colors (SGR) for the console. Screen clears (`ESC[2J`, `ESC[3J`, `ESC c`) are reported as `Cleared`.
 
-    // Evaluate against all captures
-    for _, cap := range captures {
-        if matched, value := cap.Match(line); matched {
-            captureRegistry.Store(processName, cap.Name, value)
-        }
-    }
+Per line, the supervisor writes a `[stackstart] screen cleared` marker if the line cleared the screen, writes the line, then (until settled) evaluates log checks, captures and `fail_on` against the **plain text**, and finally tries to become ready synchronously, so a ready line is always reported before an exit that follows it.
 
-    // After every line: check if (all required captures done) AND (readiness mode satisfied)
-    if allRequiredCapturesDone() && readinessSatisfied() {
-        emitReadyEvent()
-        break // stop evaluating; just keep tee'ing to logmux
-    }
-}
-```
+**Readiness loop.** Re-evaluates readiness every 100 ms, so background checks (`tcp:`) pass for processes that go silent, and fails the process when the timeout expires whatever the process is doing. Previously the timeout was only noticed when output stopped, so a process that kept logging, or went silent, stayed in `starting` forever.
+
+The startup outcome (ready, or failed before ready) is decided exactly once (`settled` compare-and-swap) by whichever of the pump, readiness loop or wait loop gets there first.
 
 ### 9.2 Readiness check types
 
 #### `log: <regex>`
 
-Per-line, unanchored substring match (`grep` semantics). Compiled once with `regexp.MustCompile`. Matches against the line bytes; no normalization.
+Per-line, unanchored substring match (`grep` semantics). Compiled once with `regexp.MustCompile`. Matches against the line's plain text (escape codes removed, `\r` resolved), so `^downloaded$` matches a line whose raw bytes are `30%\r\x1b[Kdownloaded`.
 
 ```go
 type LogRegexCheck struct {
@@ -629,6 +635,14 @@ func (c *TCPCheck) Run(ctx context.Context) {
 }
 ```
 
+#### `capture: <name>`
+
+Satisfied once the named capture of the same process has a value. Use it instead of a `log:` check that repeats the capture's regex: one regex to get right instead of two.
+
+#### `fail_on: [<regex>, ...]`
+
+Not a readiness check but evaluated alongside them. During startup, the first line matching any pattern fails the process immediately with `matched fail_on /<pattern>/: <line>`, instead of waiting for the timeout. After the process is ready, a match writes a `[stackstart] warning: matched fail_on ...` marker and the stack keeps running.
+
 ### 9.3 Mode evaluation
 
 A process's `readiness.checks` is evaluated as either `all` (every check satisfied) or `any` (at least one check satisfied), per the `readiness.mode` field. Default is `all`.
@@ -657,7 +671,7 @@ func (e *Evaluator) Satisfied() bool {
 
 `readiness.timeout` is a required field (no default). The evaluator runs under a `context.WithTimeout(parent, timeout)`. When the context expires:
 
-- The process is marked `failed` with attribution: which check(s) had not yet satisfied.
+- The process is marked `failed` with attribution: which check(s) had not yet satisfied, e.g. `readiness timeout after 30s; still waiting for tcp 127.0.0.1:5432`. The process is left running for the orchestrator to stop.
 - The orchestrator triggers an orchestrated shutdown of the whole stack (per `on_exit: fail` default).
 
 ### 9.5 Captures
@@ -696,7 +710,7 @@ Captured values are stored in an in-memory registry (`internal/capture/registry.
 
 A process's effective environment is computed once, at the moment of spawn, by composing five layers in increasing precedence (later layers override earlier on key collision):
 
-1. **Inherited shell env** - the entire `os.Environ()` at the time `stackstart up` was invoked.
+1. **Inherited shell env** - the entire `os.Environ()` at the time `stackstart up` was invoked, then the non-interactive defaults `PAGER=cat`, `GIT_PAGER=cat`, `PSQL_PAGER=cat`, `MANPAGER=cat`, `SYSTEMD_PAGER=` (`env.NonInteractiveDefaults`). Processes run on a terminal nobody types into; without these, `psql` or `git log` in a oneshot opens `less` and waits forever at `(END)`. Later layers can override them.
 2. **`.envrc` resolved env** - if a `.envrc` exists at `project_path` or any ancestor up to `project_path`. See section 10.1.
 3. **`.env` file** - if `<project_path>/.env` exists. Plain `KEY=value` parser.
 4. **Per-process `env:` block** - the YAML map. Values may contain `${producer.name}` and `${envrc.VAR}` references, resolved here.
@@ -770,13 +784,20 @@ Stackstart has no daemon. To make `down`, `logs`, and `status` work from a shell
 ```
 $XDG_STATE_HOME/stackstart/                       # default: ~/.local/state/stackstart
   sessions/
-    <slug>.json                                   # session record (one per running session)
-    <slug>.lock                                   # flock target (one per session)
-    <slug>/                                       # per-session subdir
-      <process>.state                             # one file per supervised process
-      <process>.log                               # PTY output log
-      stackstart.log                              # orchestrator's own diag log (slog output)
+    <slug>.json                                   # session record (only while running)
+    <slug>.lock                                   # flock target (only while running)
+    <slug>/                                       # per-session subdir, kept after exit
+      latest -> runs/<run-id>                     # newest run
+      runs/
+        <run-id>/                                 # one per `up`, e.g. 20261010-221157-4242
+          run.json                                # the record, plus outcome / failed_process / cause
+          <process>.log                           # plain text: escape codes removed, \r resolved
+          <process>.raw.log                       # exact bytes the process wrote
+          <process>.state                         # one file per supervised process
+          stackstart.log                          # orchestrator's own diag log (slog output)
 ```
+
+Run directories outlive the session, so logs can be read after a crash. The newest 10 runs per session are kept (`session.DefaultKeepRuns`); older ones are pruned when a new run starts, and `stackstart clean` removes finished runs on demand.
 
 `<slug>` is human-readable: `<project_path_with_slashes_to_underscores>__<profile_name>`. Example: `Users_shobhit_code_onepiece__dev`. This makes `ls ~/.local/state/stackstart/sessions/` immediately legible.
 
@@ -792,18 +813,18 @@ XDG resolution: respect `$XDG_STATE_HOME` if set; otherwise default to `~/.local
   "config_file": "/Users/shobhit/code/onepiece/stackstart.yaml",
   "stackstart_pid": 41234,
   "stackstart_version": "0.1.0",
+  "run_id": "20260425-183000-41234",
   "started_at": "2026-04-25T18:30:00+05:30",
-  "log_dir": "/Users/shobhit/.local/state/stackstart/sessions/Users_shobhit_code_onepiece__dev",
+  "outcome": "running",
+  "log_dir": "/Users/shobhit/.local/state/stackstart/sessions/Users_shobhit_code_onepiece__dev/runs/20260425-183000-41234",
   "processes": [
-    {"name": "postgres",    "pid": 41235, "log_file": ".../postgres.log",    "state_file": ".../postgres.state"},
-    {"name": "cloudflared", "pid": 41236, "log_file": ".../cloudflared.log", "state_file": ".../cloudflared.state"},
-    {"name": "backend",     "pid": 41237, "log_file": ".../backend.log",     "state_file": ".../backend.state"},
-    {"name": "web",         "pid": 41238, "log_file": ".../web.log",         "state_file": ".../web.state"}
+    {"name": "postgres", "pid": 41235, "log_file": ".../postgres.log", "raw_log_file": ".../postgres.raw.log", "state_file": ".../postgres.state"},
+    {"name": "backend",  "pid": 41237, "log_file": ".../backend.log",  "raw_log_file": ".../backend.raw.log",  "state_file": ".../backend.state"}
   ]
 }
 ```
 
-The session record is written once on `up` (after the lock is acquired and processes have been spawned) and rewritten only when child PIDs change (e.g. on graceful exit).
+The record is written atomically when the run starts and rewritten whenever a process starts, so `pid` is always the real PID (0 only for processes not started yet). The same record is kept as `run.json` in the run directory. When the run ends, `run.json` gets `ended_at`, `outcome` (`stopped` or `failed`) and, for failures, `failed_process` and `cause`. A run.json still saying `running` whose `stackstart_pid` is dead means stackstart itself was killed.
 
 ### 11.3 Per-process state files
 
@@ -833,22 +854,28 @@ On every `up` and `status`:
 
 1. List `<XDG_STATE>/stackstart/sessions/*.json`.
 2. For each, read `stackstart_pid` and check `syscall.Kill(pid, 0)` (signal 0 = "is this PID alive?"). On `ESRCH`, the process is gone.
-3. If gone, remove the session record JSON, the lock file, and the per-session subdir.
+3. If gone, remove the session record JSON and the lock file. Run directories are kept.
 
 This catches the rare case where stackstart was hard-killed in a way that left state files behind even after flock released.
 
 ### 11.6 Cross-shell command implementations
 
-- **`stackstart down [--profile <name>]`** - locate the matching session record (by current cwd context + optional `--profile`), read `stackstart_pid`, send SIGTERM. The running stackstart's signal handler does the orchestrated shutdown (section 8.4). The other shell waits a few seconds polling for the session record to disappear, then prints "stopped".
-- **`stackstart logs <process> [--profile <name>]`** - locate session record, read the `<process>.log` path, native Go tail (open + `Seek(0, io.SeekEnd)` + poll for new bytes; handle truncation by checking inode + size on each poll cycle).
+A session matches the current directory when the directory is inside the session's `project_path` **and no nested git repository or worktree (a `.git` file or directory) lies between them** (`session.MatchesProject`). Without the second rule, a worktree at `<repo>/.worktrees/x` would stop or read the main checkout's stack.
+
+- **`stackstart down [--profile <name>] [--no-wait] [--timeout 2m]`** - locate the matching session record, send SIGTERM to `stackstart_pid`, and wait until that process has exited, so `up` can run straight after. Prints the project path and the run's log directory.
+- **`stackstart logs <process> [--profile <name>]`** - if a matching session is running, print its last 10 lines and follow (`tail -n 10 -f`). Otherwise print the whole log of the latest finished run that has that process, with a stderr header saying when and how the run ended. When several sessions match, the one that has `<process>` is chosen.
+- **`stackstart clean [--all] [--dry-run]`** - delete finished run directories for this project (or all projects). Never touches a running session.
 - **`stackstart status`** - list all session JSONs (after stale reap), read each one + its per-process state files, render a human table to stdout.
 
 ## 12. Logging multiplexer
 
-Each process's PTY output stream is fan-out to two sinks via `internal/logmux`:
+Each process's PTY output stream is fanned out to three sinks (`internal/output` sanitizes, `internal/logmux` writes):
 
-1. **The per-process log file** (`<slug>/<process>.log`) - raw bytes, no prefix, no color manipulation. Any tool reading the log file gets exactly what the child wrote.
-2. **The interleaved console writer** (stackstart's stdout) - prefixed with `<padded-name> | ` and colored. Color is ANSI-aware: if the child wrote ANSI codes, they pass through; we add our own color only to the prefix.
+1. **The raw log** (`<run>/<process>.raw.log`) - every byte exactly as the child wrote it.
+2. **The plain log** (`<run>/<process>.log`) - one line per line of output, escape codes removed, `\r` resolved, always valid UTF-8. This is what `stackstart logs`, readiness checks and captures use.
+3. **The interleaved console writer** (stackstart's stdout) - prefixed with `<padded-name> | ` and colored. Only colors (SGR) pass through from the child, with a reset appended so a color cannot bleed into the next line. Cursor movement, line erases, window titles and screen clears are removed: on a shared console they would overwrite or erase other processes' output. A screen clear becomes a faint `[stackstart] screen cleared` marker line, in the console and the plain log.
+
+Lines stackstart itself writes into a process's log start with `[stackstart] ` (`logmux.MarkerPrefix`). Stackstart's own notices (`all 3 processes ready · logs: <dir>`, failures) go to stderr, keeping stdout for process output.
 
 ### 12.1 Per-process color assignment
 
@@ -885,34 +912,11 @@ backend     | listening on port 4000
 web         | VITE v5.0.0  ready in 423 ms
 ```
 
-Each prefix is colored per process; the line content is whatever the child emitted (ANSI codes preserved).
+Each prefix is colored per process; the line content keeps the child's colors.
 
-### 12.3 Implementation sketch
+### 12.3 Implementation
 
-```go
-// internal/logmux/mux.go
-type Mux struct {
-    name      string
-    padTo     int
-    color     color.Attribute
-    fileWriter io.Writer
-    consoleWriter io.Writer
-}
-
-func (m *Mux) Write(line []byte) {
-    // Always write raw to file
-    m.fileWriter.Write(append(line, '\n'))
-
-    // Write prefixed + colored to console
-    prefix := fmt.Sprintf("%-*s | ", m.padTo, m.name)
-    coloredPrefix := color.New(m.color).Sprint(prefix)
-    m.consoleWriter.Write([]byte(coloredPrefix))
-    m.consoleWriter.Write(line)
-    m.consoleWriter.Write([]byte("\n"))
-}
-```
-
-Console writes are serialized via a single mutex shared across all `Mux` instances in a session, so two processes emitting simultaneously never produce torn lines.
+See `internal/output/sanitize.go` (`Sanitize`), `internal/output/reader.go` (`Reader`) and `internal/logmux/mux.go` (`Write`, `Marker`). Console writes are serialized via a single mutex shared across all `Mux` instances in a session, so two processes emitting simultaneously never produce torn lines.
 
 ## 13. CLI surface
 
@@ -923,8 +927,9 @@ All commands implemented as cobra subcommands in `internal/cli/`. The root comma
 | Command | Synopsis | File |
 |---|---|---|
 | `up <profile>` | Resolve, validate, run | `up.go` |
-| `down [--profile <name>]` | Send SIGTERM to running session | `down.go` |
-| `logs <process> [--profile <name>]` | Tail per-process log | `logs.go` |
+| `down [--profile <name>] [--no-wait] [--timeout]` | Stop the running session and wait until it has stopped | `down.go` |
+| `logs <process> [--profile <name>]` | Recent lines then follow (live), or the last run's full log (stopped) | `logs.go` |
+| `clean [--all] [--dry-run]` | Delete finished runs' logs | `clean.go` |
 | `status` | List running sessions, per-process state | `status.go` |
 | `list` | List profiles available from cwd context | `list.go` |
 | `init` | Scaffold a starter `stackstart.yaml` | `init.go` |
@@ -938,6 +943,8 @@ All commands implemented as cobra subcommands in `internal/cli/`. The root comma
 - `--version` - print version.
 
 ### 13.3 Exit codes
+
+> **Not implemented yet.** Today every error exits `1`, and a second Ctrl-C exits `130`. The stable exit-code table is ROADMAP item 2.7 and supersedes the list below.
 
 - `0` - success (`up` ran clean and the user stopped it intentionally; `validate` passed; `status` ran).
 - `1` - generic error (unknown).
@@ -988,7 +995,19 @@ profiles:
             - log: "READY"
 ```
 
-For TCP readiness e2e, use `nc -l <port>` (BSD netcat on macOS, GNU netcat on Linux - the small invocation differences are abstracted in a test helper).
+### 14.2.1 Ecosystem conformance
+
+Every behavior in the ROADMAP's behavior catalogue is tested twice:
+
+- **Fixtures** (`e2e/fakeproc`, `e2e/phase0_test.go`). `fakeproc <mode>` is a small Go program that reproduces one real behavior deterministically: prompts without a newline (IEx), screen clears (tsc, vite, bun, nodemon), spinners and redraws (npm, docker compose), >64 KB lines, silent servers, child trees, children that leave the process group (BEAM ports), SIGTERM-ignoring processes, pagers (psql, git), cloudflared success and failure output, and so on. Runs in CI on macOS and Linux with no toolchains installed.
+- **Real tools** (`e2e/realworld_test.go`, build tag `realworld`): IEx, Elixir ports, `mix`, `node --watch`, `bun --watch`, `npm run`, native Postgres + `psql`, Redis, Python, `go run`, Postgres in Docker. Each test skips with the reason when its tool is missing.
+
+```bash
+go test ./e2e/                                            # fixtures, every PR
+go test -tags realworld -timeout 900s -run TestRW_ ./e2e/  # real tools
+```
+
+Every e2e test runs with its own `XDG_STATE_HOME` (set in `TestMain`), and every command it runs has a timeout, so a hung `up` fails that test instead of the suite. `STACKSTART_E2E_BINARY=<path>` runs the suite against a prebuilt binary, for example to confirm that new tests fail against an older release.
 
 ### 14.3 What we don't test
 
