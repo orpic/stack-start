@@ -320,7 +320,7 @@ Things learned by running real tools. Add to this whenever a test project teache
 
 As of 2026-10-11, early morning. Everything is committed on branch `agent-native-blackbox` (from `main`); see `git log main..agent-native-blackbox`. Nothing is pushed.
 
-Done (W1–W8):
+Done (W1–W9):
 
 - **W1** `conformance/CONTRACT.md` (the public contract) and `conformance/README.md` (case format, steps, running).
 - **W2** The runner, `conformance/runner/` (own Go module, imports nothing from stackstart): every step in the vocabulary plus `mark`/`since`, `save`, `plain`; variables; isolated state, home and ports; parallel and exclusive cases; leak check by process-tree sampling and token; JUnit. Self-tests in `conformance/runner/selftest/` (cases that must pass and cases that must fail: leak, untokened descendant, timeout, still running).
@@ -344,7 +344,7 @@ Incident during the night: building v0.2.3, I ran `git stash` with nothing to st
 
 Not done:
 
-- **W9** (Phase 1 design note) is next; per the work order it stops for the owner's review. Phase 1 is not implemented.
+- **W9** done: [`docs/phase1-design.md`](docs/phase1-design.md) (process model, control socket and its path-length workaround, protocol, event log schema, states and restarts, `status --json` schema, testing plan) with seven open questions (Q1–Q7). **Stopped here for the owner's review**, as the work order says; Phase 1 is not implemented.
 - `status --json` (1.7) is still needed for the one dropped old test (real PIDs in the session record).
 - Prefix colors are not covered (the runner has no terminal).
 - CI has not run on GitHub yet; the first push will tell whether the Ubuntu/macOS runners behave like this machine and the Linux container.
