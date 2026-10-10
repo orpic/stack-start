@@ -38,3 +38,8 @@ AGENTS.md
 
 # Test playground
 test-playground/
+
+zzprivate/
+
+# Agent scratch / experiments (never committed)
+tmp/
