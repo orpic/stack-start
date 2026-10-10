@@ -1,0 +1,9 @@
+profiles:
+  one:
+    processes:
+      onlyhere: {cmd: "echo from-onlyhere; exit 1"}
+      shared: {cmd: "echo shared in one; sleep 1"}
+  two:
+    processes:
+      other: {cmd: "echo from-other; exit 1"}
+      shared: {cmd: "echo shared in two; sleep 1"}

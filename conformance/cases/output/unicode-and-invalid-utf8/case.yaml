@@ -1,0 +1,13 @@
+name: Unicode passes through; invalid UTF-8 is replaced so logs are always valid UTF-8
+roadmap: "0.6"
+covers: [unicode, invalid-utf8]
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 8s}
+  - expect_output: {id: up, stream: stdout, contains: ["vite   |   ➜  Local:   http://localhost:5173/", "vite   |   ✓ Compiled │ 🚀 done"]}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs vite
+    expect: {stdout_equals: "  VITE v5.0.0  ready in 423 ms\n  ➜  Local:   http://localhost:5173/\n  ✓ Compiled │ 🚀 done\n"}
+  - run: logs native
+    expect: {stdout_valid_utf8: true, stdout_contains: ["garbage ", " bytes\n", "after binary\n"]}

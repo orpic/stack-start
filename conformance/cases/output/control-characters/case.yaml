@@ -1,0 +1,10 @@
+name: CRLF, tabs, charset switches, bells and other control characters are handled
+roadmap: "0.6"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 5s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - expect_output: {id: up, stream: stdout, not_contains: ["\e(B", "\a", "\x01", "\b"], contains: "app | col1\tcol2"}
+  - run: logs app
+    expect: {stdout_equals: "windows line\ncol1\tcol2\nplain after charset\nbell and backspace\nDONE\n"}

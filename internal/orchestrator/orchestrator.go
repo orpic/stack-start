@@ -161,6 +161,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 	for _, name := range sortedNames(o.cfg.Profile.Processes) {
 		if len(depGraph[name]) == 0 {
+			// Mark it now, not when its "starting" event arrives: another
+			// process becoming ready in between must not start it again.
+			states[name] = supervisor.StateStarting
 			if err := o.startProcess(name); err != nil {
 				return o.abort(name, err, states)
 			}
@@ -200,6 +203,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 						}
 					}
 					if allReady {
+						states[depName] = supervisor.StateStarting
 						if err := o.startProcess(depName); err != nil {
 							return o.abort(depName, err, states)
 						}

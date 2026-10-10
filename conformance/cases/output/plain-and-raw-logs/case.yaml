@@ -1,0 +1,15 @@
+name: the plain log has no escape codes; the raw log keeps the exact bytes; the console keeps colors
+roadmap: "0.6"
+notes: "fails on v0.2.3: there was one log with raw bytes"
+steps:
+  - start: up p
+  - wait_output: {id: up, stream: stderr, matches: 'stackstart: 1 process ready · logs: (\S+)', save: LOGDIR, timeout: 8s}
+  - expect_output: {id: up, stream: stdout, contains: "app | \e[32mgreen\e[0m and plain", not_contains: "\e[K"}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs app
+    expect: {stdout_equals: "green and plain\ndownloaded\n", stdout_not_contains: "\e"}
+  - sh: cat "${LOGDIR}/app.log"
+    expect: {stdout_equals: "green and plain\ndownloaded\n"}
+  - sh: cat "${LOGDIR}/app.raw.log"
+    expect: {stdout_equals: "\e[32mgreen\e[0m and plain\r\n30%\r\e[Kdownloaded\r\n"}

@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count; echo "run $n"; exit 1

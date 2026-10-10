@@ -1,0 +1,11 @@
+name: a burst of 50,000 lines is logged without losing any
+roadmap: "0.1"
+covers: [burst]
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 30s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - expect_output: {id: up, stream: stdout, count: {"app | burst line ": 50000}}
+  - run: logs app
+    expect: {stdout_count: {"burst line ": 50000}, stdout_contains: "burst line 50000\nBURST_DONE\n"}

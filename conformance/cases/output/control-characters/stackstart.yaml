@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          printf 'windows line\r\ncol1\tcol2\n\033(Bplain after charset\n\007bell and\001 backspace\n'; echo DONE; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 3s, checks: [{log: DONE}]}

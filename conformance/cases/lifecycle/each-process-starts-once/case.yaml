@@ -1,0 +1,12 @@
+name: every process is started exactly once, even when another becomes ready while it is starting
+roadmap: v0
+notes: "fails before 2026-10-11 (and on v0.2.3): a process without dependencies could be started a second time when another process became ready before its 'starting' event was handled; the first copy then leaked"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "all 6 processes ready", timeout: 10s}
+  - process: {matches: "^perl -e sleep 300 a-${TOKEN}$", count: 1, timeout: 2s}
+  - process: {matches: "^perl -e sleep 300 b-${TOKEN}$", count: 1, timeout: 2s}
+  - process: {matches: "^perl -e sleep 300 e-${TOKEN}$", count: 1, timeout: 2s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - expect_output: {id: up, stream: stdout, count: {"start a": 1, "start b": 1, "start c": 1, "start d": 1, "start e": 1, "start f": 1}}

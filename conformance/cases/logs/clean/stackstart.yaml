@@ -1,0 +1,9 @@
+profiles:
+  p:
+    processes:
+      app: {cmd: "echo hi; exit 1"}
+  live:
+    processes:
+      app:
+        cmd: |-
+          exec perl -e 'sleep 300' ${TOKEN}

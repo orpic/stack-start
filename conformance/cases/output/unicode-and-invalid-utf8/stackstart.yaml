@@ -1,0 +1,12 @@
+profiles:
+  p:
+    processes:
+      vite:
+        cmd: |-
+          printf '  VITE v5.0.0  ready in 423 ms\n  ➜  Local:   http://localhost:5173/\n  ✓ Compiled │ 🚀 done\n'; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: "➜  Local:"}]}
+      native:
+        # Crashed native code, cat of a binary file.
+        cmd: |-
+          printf 'garbage \377\376\001 bytes\n'; echo after binary; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: after binary}]}

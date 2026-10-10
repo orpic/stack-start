@@ -1,0 +1,8 @@
+profiles:
+  p:
+    processes:
+      app:
+        # Minified stack traces, JSON loggers, webpack stats.
+        cmd: |-
+          echo started; head -c 200000 /dev/zero | tr '\0' x; echo; seq 1 3000 | sed 's/^/normal line /'; echo DONE_WRITING; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 10s, checks: [{log: DONE_WRITING}]}

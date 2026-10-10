@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          seq 1 15 | sed 's/^/line /'; while [ ! -f go ]; do sleep 0.05; done; echo 'line 16 after go'; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 3s, checks: [{log: "line 15"}]}

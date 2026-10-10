@@ -1,0 +1,12 @@
+name: a prompt without a trailing newline is shown, logged and usable as a ready signal
+roadmap: "0.2"
+covers: [prompt]
+notes: "fails on v0.2.3: the prompt was never seen, so the process never became ready"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 5s}
+  - expect_output: {id: up, stream: stdout, contains: "app | iex(1)> "}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs app
+    expect: {stdout_equals: "Erlang/OTP 26 [erts-14.2] [64-bit]\n\nInteractive Elixir (1.17.3) - press Ctrl+C to exit\niex(1)> \n"}

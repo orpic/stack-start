@@ -1,0 +1,18 @@
+name: spinners and cursor redraws become readable lines; no control sequence reaches the console
+roadmap: "0.5, 0.6"
+covers: [spinner, redraw]
+notes: "fails on v0.2.3: \\r, cursor movement and OSC titles reached the console and the log"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 8s}
+  - expect_output:
+      id: up
+      stream: stdout
+      not_contains: ["\e[1A", "\e[2K", "\e[0G", "\e]0;", "\e[?25l", "\e[?25h", "\a", "\r", "\e[K"]
+      contains: ["spinner | - 100% done", "compose | [+] Running 3/3", "compose |  ✔ Container db  Started"]
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs spinner
+    expect: {stdout_equals: "- 100% done\ndownloaded\ninstalled\n"}
+  - run: logs compose
+    expect: {stdout_equals: "[+] Running 0/3\n[+] Running 3/3\n ✔ Container db  Started\ncompose ready\n"}
