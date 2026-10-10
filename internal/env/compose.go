@@ -1,7 +1,9 @@
 package env
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,10 +58,12 @@ func Compose(
 
 	// Layer 3: .env file
 	dotenvPath := filepath.Join(projectPath, ".env")
-	if dotenvEnv, err := LoadDotenv(dotenvPath); err == nil {
-		for k, v := range dotenvEnv {
-			envMap[k] = v
-		}
+	dotenvEnv, err := LoadDotenv(dotenvPath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("loading .env: %w", err)
+	}
+	for k, v := range dotenvEnv {
+		envMap[k] = v
 	}
 
 	// Layer 4+5: per-process env with reference resolution

@@ -1,0 +1,10 @@
+profiles:
+  p:
+    processes:
+      db:
+        cmd: |-
+          exec perl -e 'sleep 300' db-${TOKEN}
+      web:
+        cmd: |-
+          exec perl -e 'sleep 300' web-${TOKEN}
+        depends_on: [db]

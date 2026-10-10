@@ -1,0 +1,13 @@
+name: env layers apply in order shell < pager defaults < .envrc < .env < env block, with direnv
+roadmap: v0, "0.13"
+requires: ["command -v direnv"]
+env: {A: shell, B: shell, C: shell, D: shell, PAGER: less, KEEP: shell}
+notes: "before 2026-10-11, with direnv installed, the shell's PAGER came back through direnv and undid the pager default"
+steps:
+  - sh: direnv allow .
+  - run: up p
+    expect: {stdout_contains: "app | A=shell B=envrc C=dotenv D=block PAGER=cat KEEP=shell Q=quoted S=single R=envrc-ref"}
+  - write_file: {path: .envrc, content: "export PAGER=most\nexport R=changed\n"}
+  - sh: direnv allow .
+  - run: up p
+    expect: {stdout_contains: "app | A=shell B=shell C=dotenv D=block PAGER=most KEEP=shell Q=quoted S=single R=changed"}

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/orpic/stack-start/internal/interpolate"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -241,8 +242,6 @@ func validateCaptureRefs(processes map[string]Process) error {
 		captureIndex[name] = caps
 	}
 
-	refPattern := regexp.MustCompile(`\$\{([^}]+)\}`)
-
 	for name, proc := range processes {
 		var valuesToCheck []string
 		valuesToCheck = append(valuesToCheck, proc.Cmd)
@@ -251,9 +250,16 @@ func validateCaptureRefs(processes map[string]Process) error {
 		}
 
 		for _, val := range valuesToCheck {
-			matches := refPattern.FindAllStringSubmatch(val, -1)
-			for _, m := range matches {
-				ref := m[1]
+			// Use the same lexer as interpolation, so $$ escapes are honored.
+			tokens, err := interpolate.Tokenize(val)
+			if err != nil {
+				return fmt.Errorf("process %q: %w", name, err)
+			}
+			for _, tok := range tokens {
+				if tok.Literal {
+					continue
+				}
+				ref := tok.Value
 				if strings.HasPrefix(ref, "envrc.") {
 					continue
 				}

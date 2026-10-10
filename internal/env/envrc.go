@@ -43,11 +43,20 @@ func findEnvrc(projectPath string) string {
 func loadViaDirenv(direnvPath, projectPath string) (map[string]string, error) {
 	cmd := exec.Command(direnvPath, "exec", projectPath, "env", "-0")
 	cmd.Dir = projectPath
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("direnv exec failed: %w", err)
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, fmt.Errorf("direnv could not load %s: %s", filepath.Join(projectPath, ".envrc"), msg)
 	}
 
+	// direnv prints the whole environment. Keep only what the .envrc
+	// changed, so it doesn't re-apply shell values that later layers (such
+	// as the PAGER defaults) replace.
 	result := make(map[string]string)
 	for _, entry := range bytes.Split(out, []byte{0}) {
 		s := string(entry)
@@ -55,9 +64,13 @@ func loadViaDirenv(direnvPath, projectPath string) (map[string]string, error) {
 			continue
 		}
 		k, v, ok := strings.Cut(s, "=")
-		if ok {
-			result[k] = v
+		if !ok || strings.HasPrefix(k, "DIRENV_") {
+			continue
 		}
+		if cur, set := os.LookupEnv(k); set && cur == v {
+			continue
+		}
+		result[k] = v
 	}
 	return result, nil
 }

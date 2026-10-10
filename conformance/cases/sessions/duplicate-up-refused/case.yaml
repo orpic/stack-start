@@ -1,0 +1,21 @@
+name: a second up of the same profile in the same project is refused; another profile may run
+roadmap: v0
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
+  - run: up p
+    expect: {exit: 1, stderr_contains: "profile is already running for this project; see 'stackstart status'"}
+  - start: up q
+    id: upq
+  - wait_output: {id: upq, contains: "1 process ready", timeout: 10s}
+  - run: down
+    expect:
+      exit: 1
+      stderr_contains: ["more than one stackstart session matches this directory; pass --profile <name>:", "  --profile p  ${WORK}", "  --profile q  ${WORK}"]
+  - run: down --profile q
+    expect: {stdout_contains: "Stopped \"q\" in ${WORK}."}
+  - wait_exit: {id: upq, exit: 0, timeout: 5s}
+  - alive: {id: up, for: 300ms}
+  - run: down
+    expect: {stdout_contains: "Stopped \"p\" in ${WORK}."}
+  - wait_exit: {id: up, exit: 0, timeout: 5s}

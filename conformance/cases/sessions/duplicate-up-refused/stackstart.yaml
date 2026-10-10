@@ -1,0 +1,11 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          exec perl -e 'sleep 300' p-${TOKEN}
+  q:
+    processes:
+      app:
+        cmd: |-
+          exec perl -e 'sleep 300' q-${TOKEN}

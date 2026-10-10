@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        kind: oneshot
+        cmd: echo "X=$X Y=$Y R=$R"
+        env: {R: "${envrc.X}"}

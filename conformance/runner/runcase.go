@@ -91,6 +91,9 @@ func runCase(ctx context.Context, c *Case, opts Options) (res Result) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	for k, v := range c.Env {
+		r.env = setEnv(r.env, k, substitute(v, r.vars))
+	}
 	for _, req := range c.Requires {
 		req = substitute(req, r.vars)
 		rctx, rcancel := context.WithTimeout(ctx, 60*time.Second)

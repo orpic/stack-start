@@ -1,0 +1,15 @@
+name: pagers default to cat so a oneshot that would page (psql, git log) never hangs
+roadmap: "0.13"
+covers: [pager]
+env: {PAGER: less, GIT_PAGER: less, PSQL_PAGER: less, MANPAGER: less}
+notes: "fails on v0.2.3: the oneshot waited at (END) forever"
+steps:
+  - run: up p
+    timeout: 10s
+    expect:
+      stdout_contains: ["query | result row 1", "query | PAGER=cat GIT_PAGER=cat PSQL_PAGER=cat MANPAGER=cat SYSTEMD_PAGER=[]"]
+      stdout_not_contains: "(END)"
+      stderr_contains: "all processes finished"
+  - run: up custom
+    timeout: 10s
+    expect: {stdout_contains: "query | PAGER=more"}

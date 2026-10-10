@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        kind: oneshot
+        cmd: echo "A=$A B=$B C=$C D=$D PAGER=$PAGER KEEP=$KEEP Q=$Q S=$S R=$R"
+        env: {D: block, R: "${envrc.R}"}

@@ -301,6 +301,9 @@ func (r *caseRun) stepStart(p params) error {
 	if err != nil {
 		return err
 	}
+	if _, taken := r.cmds[first]; taken && p.str("id") == "" {
+		return fmt.Errorf("id %q is already used in this case; give this start an 'id'", first)
+	}
 	_, err = r.launch(p, "stackstart "+p.str("start"), first, cmd, false)
 	return err
 }

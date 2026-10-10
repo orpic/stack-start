@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        kind: oneshot
+        cmd: echo hi

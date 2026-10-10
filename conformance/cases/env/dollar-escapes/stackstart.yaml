@@ -1,0 +1,12 @@
+profiles:
+  p:
+    processes:
+      gen:
+        kind: oneshot
+        cmd: echo token=abc
+        captures: [{name: token, log: "token=(\\w+)"}]
+      user:
+        kind: oneshot
+        depends_on: [gen]
+        cmd: echo "literal=\$$5 shell=$FROM_SHELL braces=$${FROM_SHELL} env=$PRICE cap=${gen.token}"
+        env: {PRICE: "$$9"}
