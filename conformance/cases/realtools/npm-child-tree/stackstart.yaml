@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: npm run dev
+        readiness: {timeout: 30s, checks: [{log: npm child ready}]}

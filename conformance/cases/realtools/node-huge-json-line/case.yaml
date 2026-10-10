@@ -1,0 +1,13 @@
+name: "node: a 300 KB JSON log line does not stop output"
+roadmap: "0.1"
+covers: [long-line]
+home: real
+requires: ["node --version"]
+timeout: 60s
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 20s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs app
+    expect: {stdout_count: {"x": 300000}, stdout_contains: "after json\n"}

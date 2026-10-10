@@ -1,0 +1,18 @@
+name: "bun --watch: its screen clears on restart become one marker and never reach the console"
+roadmap: "0.5"
+covers: [clear]
+home: real
+requires: ["bun --version"]
+timeout: 60s
+notes: "fails on v0.2.3: bun's ESC[3J wiped the console's scrollback"
+steps:
+  - write_file: {path: server.js, content: "console.log('listening v1'); setInterval(() => {}, 1000)\n"}
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 20s}
+  - write_file: {path: server.js, content: "console.log('listening v2'); setInterval(() => {}, 1000)\n"}
+  - wait_output: {id: up, stream: stdout, contains: "listening v2", timeout: 15s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - expect_output: {id: up, stream: stdout, not_contains: ["\e[3J", "\e[2J"]}
+  - run: logs app
+    expect: {stdout_equals: "listening v1\n[stackstart] screen cleared\nlistening v2\n"}

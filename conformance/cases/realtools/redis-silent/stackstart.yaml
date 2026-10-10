@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      redis:
+        cmd: redis-server --port ${PORT_redis} --bind 127.0.0.1 --save '' --appendonly no
+        readiness: {timeout: 15s, checks: [{tcp: "127.0.0.1:${PORT_redis}"}]}

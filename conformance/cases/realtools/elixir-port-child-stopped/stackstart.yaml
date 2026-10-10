@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      beam:
+        cmd: |-
+          elixir -e 'Port.open({:spawn, "perl -e \"sleep 300\" port-${TOKEN}"}, []); IO.puts("elixir ready"); Process.sleep(:infinity)'
+        readiness: {timeout: 30s, checks: [{log: elixir ready}]}

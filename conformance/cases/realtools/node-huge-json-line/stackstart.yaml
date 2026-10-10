@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          node -e 'console.log(JSON.stringify({level:"error",msg:"x".repeat(300000)})); console.log("after json"); setInterval(()=>{},1000)'
+        readiness: {timeout: 15s, checks: [{log: after json}]}

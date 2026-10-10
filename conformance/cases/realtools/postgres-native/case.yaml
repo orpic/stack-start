@@ -1,0 +1,18 @@
+name: "Postgres: silent once listening; a dependent query runs after the tcp check; down frees the port"
+roadmap: "0.3, 0.13"
+covers: [silent-port, pager, oneshot]
+home: real
+requires: ["initdb --version", "psql --version", "postgres --version"]
+ports: [pg]
+timeout: 90s
+steps:
+  - sh: initdb -D pgdata -A trust -U postgres -E UTF8 --locale=C >/dev/null
+    timeout: 60s
+  - start: up p
+  - wait_output: {id: up, contains: "stackstart: all 3 processes ready", timeout: 40s}
+  - run: down
+    timeout: 30s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:${PORT_pg}", open: false, timeout: 5s}
+  - run: logs migrate
+    expect: {stdout_contains: "42", stdout_not_contains: "(END)"}

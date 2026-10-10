@@ -1,0 +1,16 @@
+name: "node --watch: a restart is logged and earlier output stays readable"
+roadmap: "0.7"
+covers: [self-restart]
+home: real
+requires: ["node --version"]
+timeout: 60s
+steps:
+  - write_file: {path: server.js, content: "console.log('listening v1'); setInterval(() => {}, 1000)\n"}
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 20s}
+  - write_file: {path: server.js, content: "console.log('listening v2'); setInterval(() => {}, 1000)\n"}
+  - wait_output: {id: up, stream: stdout, contains: "listening v2", timeout: 15s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs app
+    expect: {stdout_in_order: ["listening v1\n", "Restarting 'server.js'", "listening v2\n"]}

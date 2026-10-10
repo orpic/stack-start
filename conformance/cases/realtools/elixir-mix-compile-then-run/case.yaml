@@ -1,0 +1,33 @@
+name: "mix: compile as a oneshot, then run the app"
+roadmap: v0
+covers: [oneshot]
+home: real
+requires: ["mix --version"]
+timeout: 240s
+steps:
+  - sh: mix new demo >/dev/null
+    timeout: 60s
+  - write_file:
+      path: demo/stackstart.yaml
+      content: |
+        profiles:
+          p:
+            processes:
+              compile:
+                kind: oneshot
+                cmd: mix compile --force
+                readiness: {timeout: 120s}
+              app:
+                cmd: mix run --no-halt -e 'IO.puts("demo app ready")'
+                depends_on: [compile]
+                readiness: {timeout: 120s, checks: [{log: "demo app ready"}]}
+  - start: up p
+    cwd: demo
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 150s}
+  - run: down
+    cwd: demo
+    timeout: 30s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - run: logs compile
+    cwd: demo
+    expect: {stdout_contains: "Generated demo app", stdout_not_contains: "\e"}

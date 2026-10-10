@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: go run main.go
+        readiness: {timeout: 170s, checks: [{tcp: "127.0.0.1:${PORT_web}"}]}
