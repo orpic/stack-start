@@ -1,0 +1,13 @@
+name: a second Ctrl-C kills everything immediately and exits 130
+roadmap: "0.12"
+covers: [ignores-sigterm]
+notes: "fails on v0.2.3: the second Ctrl-C killed nothing"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
+  - signal: {id: up, sig: INT}
+  - wait_output: {id: up, contains: "Ctrl-C again to kill immediately", timeout: 3s}
+  - wait_output: {id: up, contains: "ignoring TERM", timeout: 3s}
+  - signal: {id: up, sig: INT}
+  - wait_exit: {id: up, exit: 130, timeout: 5s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 2s}

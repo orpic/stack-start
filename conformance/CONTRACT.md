@@ -21,7 +21,7 @@ Notation: `<x>` is a variable part. `…` is free text. Strings are exact unless
 | `stackstart validate <profile>` | | no |
 | `stackstart list` | | no |
 | `stackstart up <profile>` | | yes, until the stack stops or every process finishes |
-| `stackstart down` | `--profile <name>`, `--no-wait`, `--timeout <duration>` (default `2m`) | until the stack has stopped, unless `--no-wait` |
+| `stackstart down` | `--profile <name>`, `--no-wait`, `--force`, `--timeout <duration>` (default `2m`) | until the stack has stopped, unless `--no-wait` |
 | `stackstart status` | | no |
 | `stackstart logs <process>` | `--profile <name>` | live stack: follows until SIGINT/SIGTERM; stopped stack: no |
 | `stackstart clean` | `--all`, `--dry-run` | no |
@@ -101,6 +101,7 @@ Behavior:
 
 | Problem | Message |
 | --- | --- |
+| Unparsable YAML (also from the cascade: `up`, `validate`, `list`) | `parsing <path>: …` |
 | No profiles key | `<path>: no 'profiles' key found` |
 | Unknown profile (cascade) | `no profile named "<p>" applies to directory <cwd>; run 'stackstart list' to see available profiles, or 'stackstart init' to create one` |
 | Unknown profile (`--config`) | `profile "<p>" not found in <path> (available: …)` |
@@ -138,7 +139,7 @@ Success: `Profile "<p>" from <path> is valid.` (stdout).
 
 stderr notices:
 
-- `stackstart: 1 process ready · logs: <dir>` or `stackstart: all <N> processes ready · logs: <dir>`, once, when every long-running process is ready.
+- `stackstart: 1 process ready · logs: <dir>` or `stackstart: all <N> processes ready · logs: <dir>` (N counts every process, oneshots included), once, when every process is ready. `<dir>` holds `<process>.log` (plain) and `<process>.raw.log` (exact bytes) for every process.
 - `stackstart: all processes finished`, when nothing is left running (then exit 0).
 - `stackstart: <p> failed (not required, continuing): <cause>`
 - `stackstart: stopping all processes (Ctrl-C again to kill immediately)`, on the first SIGINT/SIGTERM/SIGHUP.
@@ -160,8 +161,10 @@ Read it later with: stackstart logs <process>
 | --- | --- |
 | Readiness timeout | `readiness timeout after <d>; still waiting for <checks>`, where checks are `log /<re>/`, `tcp <addr>`, `capture <name>`, joined by `, ` |
 | `fail_on` match | `matched fail_on /<re>/: <line>` |
-| Exit before ready | `process <p> exited before becoming ready: <exit status>` or `… (exit 0)` |
-| Exit after ready | `process <p> exited unexpectedly post-ready: <exit status>` or `… (exit 0)` |
+| Exit before ready | `process <p> exited before becoming ready: exit status <n>` (or `signal: <name>`), or `… (exit 0)` |
+| Exit after ready | `process <p> exited unexpectedly post-ready: exit status <n>` (or `signal: <name>`), or `… (exit 0)` |
+| Oneshot exit non-zero | `oneshot process failed: exit status <n>` |
+| Oneshot exit 0 with checks pending | `oneshot process exited before readiness checks passed; still waiting for <checks>` |
 | Already running | `profile is already running for this project; see 'stackstart status'` (no FAILED block) |
 
 Guarantees:
@@ -211,8 +214,10 @@ Each process's environment is layered, later wins:
 - `down`:
   - success (stdout): `Stopped "<profile>" in <path>. Logs: <dir>`; progress (stderr): `Stopping "<profile>" in <path>...`
   - `--no-wait` (stdout): `Stopping "<profile>" in <path> (PID <pid>).`
+  - `--force` (stdout): `Killed "<profile>" in <path>. Logs: <dir>`; every process is killed at once and `up` exits 130.
+  - running `down` again while the stack is stopping waits again; it never force-kills.
   - nothing running: `no running stackstart session found for <cwd>`
-  - timeout: `stack "<profile>" is still stopping after <d> …`
+  - timeout: `stack "<profile>" is still stopping after <d> (stackstart PID <pid>); run 'stackstart down' again to keep waiting, or 'stackstart down --force' to kill it now`
 - `status`: `No running stackstart sessions.` or a table with header `PROFILE  PROJECT  PID  STARTED  PROCESSES` and one row per session, processes as `<name>(<state>)` joined by `, `.
 - `list`: `Available profiles:` then `  <name padded>  (from <path>)` per profile; or `No profiles found for the current directory context.` and `Run 'stackstart init' to create a stackstart.yaml.`
 - `init`: `Created <path>`; if the file exists, fails with `stackstart.yaml already exists in <dir>`.

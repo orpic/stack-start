@@ -20,20 +20,23 @@ type ProcessRecord struct {
 // session record (<slug>.json); a copy is kept in the run directory as
 // run.json and outlives the session.
 type Record struct {
-	Slug              string          `json:"slug"`
-	Profile           string          `json:"profile"`
-	ProjectPath       string          `json:"project_path"`
-	ConfigFile        string          `json:"config_file"`
-	StackstartPID     int             `json:"stackstart_pid"`
-	StackstartVersion string          `json:"stackstart_version"`
-	RunID             string          `json:"run_id,omitempty"`
-	StartedAt         time.Time       `json:"started_at"`
-	EndedAt           *time.Time      `json:"ended_at,omitempty"`
-	Outcome           string          `json:"outcome,omitempty"`
-	FailedProcess     string          `json:"failed_process,omitempty"`
-	Cause             string          `json:"cause,omitempty"`
-	LogDir            string          `json:"log_dir"`
-	Processes         []ProcessRecord `json:"processes"`
+	Slug              string     `json:"slug"`
+	Profile           string     `json:"profile"`
+	ProjectPath       string     `json:"project_path"`
+	ConfigFile        string     `json:"config_file"`
+	StackstartPID     int        `json:"stackstart_pid"`
+	StackstartVersion string     `json:"stackstart_version"`
+	RunID             string     `json:"run_id,omitempty"`
+	StartedAt         time.Time  `json:"started_at"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	Outcome           string     `json:"outcome,omitempty"`
+	FailedProcess     string     `json:"failed_process,omitempty"`
+	Cause             string     `json:"cause,omitempty"`
+	// Stopping is set once the stack has started to shut down, so a second
+	// 'down' waits instead of signalling again (which would force-kill).
+	Stopping  bool            `json:"stopping,omitempty"`
+	LogDir    string          `json:"log_dir"`
+	Processes []ProcessRecord `json:"processes"`
 }
 
 // WriteRecord writes the session record JSON to disk atomically, so readers

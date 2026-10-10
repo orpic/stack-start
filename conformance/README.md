@@ -111,7 +111,7 @@ Command arguments (`run`, `start`) are split like a shell would (spaces, single 
 | --- | --- | --- |
 | `run: <args>` | `id`, `cwd`, `env`, `timeout` (30s), `expect` | Run stackstart in the foreground and wait for it to exit. Hitting the timeout fails the step (and kills the command). |
 | `start: <args>` | `id` (default: first word of args; must be unique), `cwd`, `env` | Run stackstart in the background. |
-| `wait_output` | `id`, `stream` (`stdout`, `stderr`, `any`; default `any`), `contains` or `matches`, `count` (default 1: wait for at least this many occurrences), `timeout` (required) | Wait until the output of `id` so far satisfies the condition. Fails early if `id` exits without it. |
+| `wait_output` | `id`, `stream` (`stdout`, `stderr`, `any`; default `any`), `contains` or `matches`, `count` (default 1: wait for at least this many occurrences), `timeout` (required), `save` | Wait until the output of `id` so far satisfies the condition. Fails early if `id` exits without it. `save: NAME` (with `matches`) stores the regex's first group as `${NAME}` for later steps, e.g. a printed log directory or tunnel URL. |
 | `expect_output` | `id`, `stream`, plus any [output assertion](#output-assertions) | Assert on the output of `id` so far. |
 | `wait_exit` | `id`, `exit` (expected code; omit to accept any), `timeout` (required), `within` | Wait for `id` to exit. `within: 5s` fails if it exited later than 5s after it was started. |
 | `alive` | `id`, `for` | Fail if `id` exits during the next `for` (e.g. `3s`). |

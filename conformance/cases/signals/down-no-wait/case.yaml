@@ -1,0 +1,35 @@
+name: down --timeout gives up with a hint; down again keeps waiting; --force kills; --no-wait returns at once
+roadmap: "0.12"
+covers: [ignores-sigterm]
+notes: "before 2026-10-11 a second down sent a second SIGTERM and force-killed the stack, while the hint said it would wait"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
+  - run: down --timeout 300ms
+    expect:
+      exit: 1
+      stderr_contains: ["stack \"p\" is still stopping after 300ms", "run 'stackstart down' again to keep waiting, or 'stackstart down --force' to kill it now"]
+  # Running down again waits; it must not force-kill (exit 130).
+  - run: down
+    timeout: 15s
+    expect: {stdout_contains: "Stopped \"p\" in ${WORK}. Logs: "}
+  - wait_exit: {id: up, exit: 0, timeout: 1s}
+  - start: up p
+    id: up2
+  - wait_output: {id: up2, contains: "1 process ready", timeout: 10s}
+  - run: down --no-wait
+    timeout: 1s
+    expect: {stdout_matches: '^Stopping "p" in \S+ \(PID \d+\)\.\n$'}
+  - run: down --force
+    timeout: 5s
+    expect: {stdout_contains: "Killed \"p\" in ${WORK}. Logs: "}
+  - wait_exit: {id: up2, exit: 130, timeout: 1s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 2s}
+  - start: up p
+    id: up3
+  - wait_output: {id: up3, contains: "1 process ready", timeout: 10s}
+  - run: down --force
+    timeout: 5s
+    expect: {stdout_contains: "Killed \"p\" in ${WORK}. Logs: "}
+  - wait_exit: {id: up3, exit: 130, timeout: 1s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 2s}

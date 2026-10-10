@@ -1,0 +1,17 @@
+name: down waits until a process that ignores SIGTERM is killed after its grace period
+roadmap: "0.12"
+covers: [ignores-sigterm]
+notes: "fails on v0.2.3: down returned at once while the stack was still stopping"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
+  - run: down
+    timeout: 20s
+    expect:
+      stderr_equals: "Stopping \"p\" in ${WORK}...\n"
+      stdout_matches: '^Stopped "p" in \S+\. Logs: \S+\n$'
+  # down returned only after up had exited and every process was gone.
+  - wait_exit: {id: up, exit: 0, timeout: 1s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 1s}
+  - run: logs app
+    expect: {stdout_equals: "stubborn ready\nignoring TERM\n"}

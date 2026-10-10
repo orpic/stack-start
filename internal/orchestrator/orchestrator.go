@@ -171,6 +171,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			o.logger.Info("shutting down (context cancelled)")
+			o.markStopping()
 			o.shutdownAll()
 			o.finish(session.OutcomeStopped, "", nil, states)
 			return nil
@@ -299,6 +300,12 @@ func (o *Orchestrator) setPID(name string, pid int) {
 	o.writeRecord()
 }
 
+// markStopping records that the stack is shutting down.
+func (o *Orchestrator) markStopping() {
+	o.rec.Stopping = true
+	o.writeRecord()
+}
+
 // writeRecord writes the live session record and the run's run.json.
 func (o *Orchestrator) writeRecord() {
 	if err := session.WriteRecord(o.rec); err != nil {
@@ -376,6 +383,7 @@ func (o *Orchestrator) abort(failedProcess string, err error, states map[string]
 	fmt.Fprintf(&b, "Read it later with: stackstart logs %s\n", failedProcess)
 	fmt.Fprint(os.Stderr, b.String())
 
+	o.markStopping()
 	o.shutdownAll()
 	o.finish(session.OutcomeFailed, failedProcess, err, states)
 	if err != nil {

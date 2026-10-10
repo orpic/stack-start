@@ -1,0 +1,5 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: exec perl -e 'sleep 300' ${TOKEN}
