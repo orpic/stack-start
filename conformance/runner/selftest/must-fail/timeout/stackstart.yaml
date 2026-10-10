@@ -1,0 +1,5 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: "echo visible-output; exec perl -e 'sleep 300' ${TOKEN}"

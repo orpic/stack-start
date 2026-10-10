@@ -1,0 +1,5 @@
+name: version prints the name and exits 0
+steps:
+  - run: version
+    expect:
+      stdout_matches: '^stackstart \S+ \(commit: .*, built: .*\)\n$'

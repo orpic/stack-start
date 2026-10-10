@@ -1,0 +1,4 @@
+name: a run that hits its timeout fails with its output
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "this never appears", timeout: 2s}

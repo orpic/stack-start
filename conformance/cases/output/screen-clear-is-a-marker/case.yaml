@@ -1,0 +1,17 @@
+name: a screen clear becomes a marker line instead of wiping the console
+roadmap: "0.5"
+covers: [clear]
+notes: "fails on v0.2.3: the console receives ESC[2J ESC[3J and the log loses nothing but has no marker"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
+  - expect_output:
+      id: up
+      stream: stdout
+      not_contains: ["\e[2J", "\e[3J", "\e[H"]
+      in_order: ["app | build 1 ok", "app | error from build 1", "app | [stackstart] screen cleared", "app | build 2 ok"]
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs app
+    expect:
+      stdout_equals: "build 1 ok\nerror from build 1\n[stackstart] screen cleared\nbuild 2 ok\n"

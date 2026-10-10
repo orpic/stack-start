@@ -1,0 +1,3 @@
+name: a process left behind fails the case
+steps:
+  - sh: "perl -e 'sleep 300' ${TOKEN} </dev/null >/dev/null 2>&1 &"
