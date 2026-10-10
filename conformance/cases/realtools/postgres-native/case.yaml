@@ -2,7 +2,7 @@ name: "Postgres: silent once listening; a dependent query runs after the tcp che
 roadmap: "0.3, 0.13"
 covers: [silent-port, pager, oneshot]
 home: real
-requires: ["initdb --version", "psql --version", "postgres --version"]
+requires: ["initdb --version", "psql --version", "postgres --version", "test \"$(id -u)\" != 0"]
 ports: [pg]
 timeout: 90s
 steps:

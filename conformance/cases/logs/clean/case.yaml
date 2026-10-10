@@ -8,7 +8,7 @@ steps:
   # Another project (its own git repo, so it is not "inside" this one).
   - write_file: {path: other/stackstart.yaml, content: "profiles:\n  q:\n    processes:\n      app: {cmd: 'echo hi; exit 1'}\n"}
   - sh: |-
-      cd other && git init -q . && "${BIN}" up q; true
+      mkdir other/.git && cd other && "${BIN}" up q; true
   - start: up live
     id: live
   - wait_output: {id: live, contains: "1 process ready", timeout: 5s}
