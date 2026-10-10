@@ -1,0 +1,13 @@
+name: lines from processes writing at the same time never mix on the console
+roadmap: v0
+covers: [burst]
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 20s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - expect_output:
+      id: up
+      stream: stdout
+      matches: '\A(?:(?:a \| a{300}|b \| b{300}|a \| A_DONE|b \| B_DONE)\n)+\z'
+      count: {"a | aaaa": 3000, "b | bbbb": 3000}

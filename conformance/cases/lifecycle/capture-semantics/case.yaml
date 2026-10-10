@@ -1,0 +1,14 @@
+name: the first match is captured; a required capture gates readiness; a missing optional one fails its user
+roadmap: v0
+steps:
+  - start: up first
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 5s}
+  - wait_output: {id: up, stream: stdout, contains: "consumer | got https://first.example.com", timeout: 5s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: up required
+    timeout: 10s
+    expect: {exit: 1, stderr_contains: "readiness timeout after 1s; still waiting for capture url"}
+  - run: up optional
+    timeout: 10s
+    expect: {exit: 1, stderr_contains: ["--- FAILED: consumer ---", "unresolved reference ${producer.url}"]}

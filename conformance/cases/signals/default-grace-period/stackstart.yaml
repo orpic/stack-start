@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          exec perl -e '$|=1; $SIG{TERM} = sub { print "ignoring TERM\n" }; print "stubborn ready\n"; sleep 1 while 1' ${TOKEN}

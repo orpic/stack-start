@@ -1,0 +1,38 @@
+name: profiles are found upwards from the current directory and in ~/stackstart.yaml; the deepest project wins
+roadmap: v0
+steps:
+  - write_file:
+      path: sub/stackstart.yaml
+      content: "profiles:\n  dev:\n    processes:\n      inner: {kind: oneshot, cmd: echo from-sub}\n"
+  - sh: mkdir -p sub/deeper elsewhere
+  - write_file:
+      path: ${HOME}/stackstart.yaml
+      content: "profiles:\n  home-only:\n    project_path: ${WORK}\n    processes:\n      h: {kind: oneshot, cmd: echo from-home}\n  other-project:\n    project_path: /nonexistent/project\n    processes:\n      x: {kind: oneshot, cmd: echo nope}\n"
+  # From the project root: its own dev, plus the home profile for this path.
+  - run: up dev
+    expect: {stdout_contains: "outer | from-root"}
+  - run: list
+    expect:
+      stdout_contains: ["dev", "(from ${WORK}/stackstart.yaml)", "home-only", "(from ${HOME}/stackstart.yaml)", "root-only"]
+      stdout_not_contains: ["other-project", "(from ${WORK}/sub/stackstart.yaml)"]
+  # From a nested project: the deepest dev wins, outer profiles stay visible.
+  - run: up dev
+    cwd: sub/deeper
+    expect: {stdout_contains: "inner | from-sub"}
+  - run: up root-only
+    cwd: sub/deeper
+    expect: {stdout_contains: "r | from-root-only"}
+  - run: up home-only
+    cwd: sub
+    expect: {stdout_contains: "h | from-home"}
+  - run: list
+    cwd: sub/deeper
+    expect: {stdout_contains: ["(from ${WORK}/sub/stackstart.yaml)", "(from ${WORK}/stackstart.yaml)", "home-only"]}
+  # --config uses only that file, with its directory as the project.
+  - run: up dev --config ${WORK}/sub/stackstart.yaml
+    cwd: elsewhere
+    expect: {stdout_contains: "inner | from-sub"}
+  - run: list --config ${WORK}/sub/stackstart.yaml
+    expect: {stdout_contains: "dev", stdout_not_contains: ["root-only", "home-only"]}
+  - run: up other-project
+    expect: {exit: 1, stderr_contains: "no profile named \"other-project\" applies to directory ${WORK}"}

@@ -1,0 +1,30 @@
+profiles:
+  first:
+    processes:
+      producer:
+        cmd: |-
+          echo URL=https://first.example.com; echo URL=https://second.example.com; exec perl -e 'sleep 300' p-${TOKEN}
+        captures: [{name: url, log: "URL=(\\S+)"}]
+      consumer:
+        cmd: |-
+          echo got $U; exec perl -e 'sleep 300' c-${TOKEN}
+        depends_on: [producer]
+        env: {U: "${producer.url}"}
+  required:
+    processes:
+      producer:
+        cmd: |-
+          echo ready but no url; exec perl -e 'sleep 300' ${TOKEN}
+        captures: [{name: url, log: "URL=(\\S+)"}]
+        readiness: {timeout: 1s, checks: [{log: ready}]}
+  optional:
+    processes:
+      producer:
+        cmd: |-
+          echo ready but no url; exec perl -e 'sleep 300' ${TOKEN}
+        captures: [{name: url, log: "URL=(\\S+)", required: false}]
+        readiness: {timeout: 1s, checks: [{log: ready}]}
+      consumer:
+        cmd: echo got $U
+        depends_on: [producer]
+        env: {U: "${producer.url}"}

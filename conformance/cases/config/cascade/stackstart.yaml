@@ -1,0 +1,7 @@
+profiles:
+  dev:
+    processes:
+      outer: {kind: oneshot, cmd: echo from-root}
+  root-only:
+    processes:
+      r: {kind: oneshot, cmd: echo from-root-only}

@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          printf 'part1 '; sleep 0.05; printf 'part2 '; sleep 0.05; printf 'part3\n'; printf 'Ok to proceed? (y) '; sleep 0.6; echo y; echo DONE; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: "^DONE$"}]}

@@ -1,0 +1,12 @@
+profiles:
+  p:
+    processes:
+      app:
+        # One raw line per rule: plain, CRLF, colors, color without reset,
+        # tsc/vite clear, node --watch reset, erase-below (not a clear),
+        # spinner, erase-line, cursor movement, OSC title, OSC 8 hyperlink,
+        # charset switch, backspace and bell, tab, Unicode, unterminated CSI,
+        # invalid UTF-8, clear then carriage return.
+        cmd: |-
+          printf 'hello\nlistening on 4000\r\n\033[32mok\033[0m\n\033[31merror\n\033[2J\033[3J\033[Hbuild 2 ok\n\033c\033[3JRestarting '"'"'app.js'"'"'\n\033[Jtext\n| 10%%\r/ 50%%\r- 100%% done\n50%%\r\033[Kdone\n\033[2A\033[0G[+] Running 3/3\n\033]0;my title\007visible\n\033]8;;http://x\033\\link\033]8;;\033\\\n\033(Bbox\na\bb\007c\na\tb\n  ➜  Local:   http://localhost:5173/ │\ntext\033[12\nok \377\376 bytes\n\033[2Jold\rnew\nDONE\n'; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 3s, checks: [{log: "^DONE$"}]}
