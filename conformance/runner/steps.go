@@ -42,8 +42,8 @@ var stepFields = map[string][]string{
 
 // mapFields lists the fields of steps whose value is a mapping.
 var mapFields = map[string][]string{
-	"wait_output":   {"id", "stream", "contains", "matches", "count", "timeout", "save", "since"},
-	"expect_output": append([]string{"id", "stream", "since"}, keys(assertionNames)...),
+	"wait_output":   {"id", "stream", "contains", "matches", "count", "timeout", "save", "since", "plain"},
+	"expect_output": append([]string{"id", "stream", "since", "plain"}, keys(assertionNames)...),
 	"wait_exit":     {"id", "exit", "timeout", "within"},
 	"alive":         {"id", "for"},
 	"signal":        {"id", "sig"},
@@ -365,9 +365,16 @@ func stream(p params) (string, error) {
 // outputSince returns a command's output on a stream, from the mark named
 // by 'since' if there is one.
 func (r *caseRun) outputSince(c *command, st string, p params) (func() string, error) {
+	plain, _ := p["plain"].(bool)
+	view := func(t string) string {
+		if plain {
+			return sgrPattern.ReplaceAllString(t, "")
+		}
+		return t
+	}
 	since := p.str("since")
 	if since == "" {
-		return func() string { return c.out.get(st) }, nil
+		return func() string { return view(c.out.get(st)) }, nil
 	}
 	m, ok := r.marks[c.id+"/"+since]
 	if !ok {
@@ -376,11 +383,14 @@ func (r *caseRun) outputSince(c *command, st string, p params) (func() string, e
 	return func() string {
 		t := c.out.get(st)
 		if off := m[st]; off <= len(t) {
-			return t[off:]
+			return view(t[off:])
 		}
 		return ""
 	}, nil
 }
+
+// sgrPattern matches color and style codes, which stay on the console.
+var sgrPattern = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
 
 func (r *caseRun) stepMark(p params) error {
 	c, err := r.get(p)

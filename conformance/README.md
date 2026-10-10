@@ -111,9 +111,9 @@ Command arguments (`run`, `start`) are split like a shell would (spaces, single 
 | --- | --- | --- |
 | `run: <args>` | `id`, `cwd`, `env`, `timeout` (30s), `expect` | Run stackstart in the foreground and wait for it to exit. Hitting the timeout fails the step (and kills the command). |
 | `start: <args>` | `id` (default: first word of args; must be unique), `cwd`, `env` | Run stackstart in the background. |
-| `wait_output` | `id`, `stream` (`stdout`, `stderr`, `any`; default `any`), `contains` or `matches`, `count` (default 1: wait for at least this many occurrences), `timeout` (required), `save`, `since` | Wait until the output of `id` so far satisfies the condition. Fails early if `id` exits without it. `save: NAME` (with `matches`) stores the regex's first group as `${NAME}` for later steps, e.g. a printed log directory or tunnel URL. |
-| `expect_output` | `id`, `stream`, `since`, plus any [output assertion](#output-assertions) | Assert on the output of `id` so far. |
-| `mark` | `id`, `name` | Remember how much output `id` has printed so far. `wait_output` and `expect_output` with `since: <name>` then only look at output printed after the mark, e.g. "a rebuild after this edit". |
+| `wait_output` | `id`, `stream` (`stdout`, `stderr`, `any`; default `any`), `contains` or `matches`, `count` (default 1: wait for at least this many occurrences), `timeout` (required), `save`, `since`, `plain` | Wait until the output of `id` so far satisfies the condition. Fails early if `id` exits without it. `save: NAME` (with `matches`) stores the regex's first group as `${NAME}` for later steps, e.g. a printed log directory or tunnel URL. |
+| `expect_output` | `id`, `stream`, `since`, `plain`, plus any [output assertion](#output-assertions) | Assert on the output of `id` so far. |
+| `mark` | `id`, `name` | Remember how much output `id` has printed so far. `wait_output` and `expect_output` with `since: <name>` then only look at output printed after the mark, e.g. "a rebuild after this edit". With `plain: true` they ignore color codes (the console keeps a process's colors, which can sit between words). |
 | `wait_exit` | `id`, `exit` (expected code; omit to accept any), `timeout` (required), `within` | Wait for `id` to exit. `within: 5s` fails if it exited later than 5s after it was started. |
 | `alive` | `id`, `for` | Fail if `id` exits during the next `for` (e.g. `3s`). |
 | `signal` | `id`, `sig` (`INT`, `TERM`, `HUP`, `KILL`) | Send a signal to the stackstart process `id`. |

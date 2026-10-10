@@ -1,0 +1,31 @@
+name: "React Router on Vite: Unicode banner as ready signal; route edits reload SSR; a config edit restarts the server; down stops it"
+roadmap: "0.5, 0.6, 0.12"
+covers: [unicode, self-restart, child-tree]
+project: test-projects/react_router_app
+requires: ["npm --version"]
+timeout: 600s
+steps:
+  - port: {addr: "127.0.0.1:5300", open: false, timeout: 1s}
+  - run: up setup
+    id: setup
+    timeout: 400s
+    expect: {stderr_contains: "all processes finished"}
+  - start: up dev
+  - wait_output: {id: up, stream: stderr, contains: "1 process ready", timeout: 60s}
+  - http: {url: "http://127.0.0.1:5300/", body_contains: "<title>New React Router App</title>", timeout: 20s}
+  - mark: {id: up, name: before-route}
+  - edit_file: {path: app/routes/home.tsx, replace: {from: "New React Router App", to: "Edited React Router App"}}
+  - wait_output: {id: up, stream: stdout, contains: "page reload app/routes/home.tsx", plain: true, since: before-route, timeout: 20s}
+  - http: {url: "http://127.0.0.1:5300/", body_contains: "<title>Edited React Router App</title>", timeout: 20s}
+  - mark: {id: up, name: before-config}
+  - edit_file: {path: vite.config.ts, replace: {from: "export default", to: "// edited by a stackstart conformance case\nexport default"}}
+  - wait_output: {id: up, stream: stdout, contains: "server restarted.", plain: true, since: before-config, timeout: 30s}
+  - http: {url: "http://127.0.0.1:5300/", timeout: 20s}
+  - run: down
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:5300", open: false, timeout: 5s}
+  - run: logs web
+    expect:
+      stdout_contains: ["➜  Local:   http://127.0.0.1:5300/", "vite.config.ts changed, restarting server..."]
+      stdout_not_contains: "\e"
+      stdout_valid_utf8: true
