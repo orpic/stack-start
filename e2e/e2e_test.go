@@ -26,6 +26,11 @@ var (
 func buildBinary(t *testing.T) string {
 	t.Helper()
 	buildOnce.Do(func() {
+		// Test a prebuilt binary (e.g. a release) instead of building one.
+		if bin := os.Getenv("STACKSTART_E2E_BINARY"); bin != "" {
+			binaryPath = bin
+			return
+		}
 		tmp := os.TempDir()
 		binaryPath = filepath.Join(tmp, "stackstart-e2e-test")
 		cmd := exec.Command("go", "build", "-o", binaryPath, "../cmd/stackstart")
@@ -51,10 +56,36 @@ func runStackstart(t *testing.T, dir string, args ...string) *exec.Cmd {
 	return cmd
 }
 
+// runAndWaitTimeout bounds every command a test runs, so one hung `up` fails
+// that test instead of freezing the whole suite.
+const runAndWaitTimeout = 60 * time.Second
+
 func runAndWait(t *testing.T, dir string, args ...string) (string, int) {
 	t.Helper()
+	return runAndWaitEnv(t, dir, nil, args...)
+}
+
+// runAndWaitEnv is runAndWait with extra environment variables.
+func runAndWaitEnv(t *testing.T, dir string, env []string, args ...string) (string, int) {
+	t.Helper()
 	cmd := runStackstart(t, dir, args...)
-	out, err := cmd.CombinedOutput()
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	var out syncBuffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	require.NoError(t, cmd.Start())
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(runAndWaitTimeout):
+		_ = cmd.Process.Kill()
+		<-done
+		t.Fatalf("stackstart %v did not exit within %s; output:\n%s", args, runAndWaitTimeout, out.String())
+	}
 	exitCode := 0
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -63,7 +94,7 @@ func runAndWait(t *testing.T, dir string, args ...string) (string, int) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
-	return string(out), exitCode
+	return out.String(), exitCode
 }
 
 // --- CLI commands ---
@@ -539,11 +570,9 @@ profiles:
 
 func TestE2E_Status_NoSessions(t *testing.T) {
 	dir := t.TempDir()
-	cmd := runStackstart(t, dir, "status")
-	cmd.Env = append(os.Environ(), "XDG_STATE_HOME="+t.TempDir())
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err)
-	require.Contains(t, string(out), "No running")
+	out, code := runAndWaitEnv(t, dir, []string{"XDG_STATE_HOME=" + t.TempDir()}, "status")
+	require.Equal(t, 0, code, out)
+	require.Contains(t, out, "No running")
 }
 
 // --- Up: duplicate session prevention ---
@@ -581,11 +610,9 @@ profiles:
 		return strings.Contains(out1.String(), "READY")
 	}, 10*time.Second, 100*time.Millisecond)
 
-	cmd2 := runStackstart(t, dir, "up", "test")
-	cmd2.Env = env
-	out2, err := cmd2.CombinedOutput()
-	require.Error(t, err)
-	require.Contains(t, string(out2), "already running")
+	out2, code := runAndWaitEnv(t, dir, []string{"XDG_STATE_HOME=" + stateDir}, "up", "test")
+	require.NotEqual(t, 0, code)
+	require.Contains(t, out2, "already running")
 }
 
 // --- Up: multiple checks with mode any ---
