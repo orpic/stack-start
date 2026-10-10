@@ -23,18 +23,18 @@ profiles:
 
   dev:
     processes:
-      pg-init:
+      pg-init: &pg-init
         kind: oneshot
         cmd: ../tools/pg-init .data/pg
         readiness: {timeout: 60s}
-      postgres:
+      postgres: &postgres
         cmd: postgres -D .data/pg -p 5544 -c listen_addresses=127.0.0.1 -c unix_socket_directories=''
         depends_on: [pg-init]
         readiness:
           timeout: 30s
           checks:
             - tcp: 127.0.0.1:5544
-      migrate:
+      migrate: &migrate
         kind: oneshot
         cmd: mix ecto.create && mix ecto.migrate
         depends_on: [postgres]
@@ -54,4 +54,26 @@ profiles:
           timeout: 120s
           checks:
             - log: "Access PhoenixAppWeb.Endpoint at"
+            - tcp: 127.0.0.1:4100
+
+  # The same stack with Phoenix inside IEx, as developers run it to poke at
+  # the running app. Ready when the iex(1)> prompt appears (it has no newline).
+  iex:
+    processes:
+      pg-init: *pg-init
+      postgres: *postgres
+      migrate: *migrate
+      phoenix:
+        cmd: iex -S mix phx.server
+        depends_on: [migrate]
+        env:
+          DB_PORT: "5544"
+          PORT: "4100"
+        fail_on:
+          - "\\*\\* \\(Mix\\) Could not start application"
+          - "address already in use"
+        readiness:
+          timeout: 120s
+          checks:
+            - log: '^iex\(1\)> '
             - tcp: 127.0.0.1:4100

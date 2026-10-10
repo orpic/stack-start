@@ -1,0 +1,56 @@
+name: "Phoenix: setup, then postgres + migrations + phoenix; edits recompile and rebuild CSS; down leaves nothing; data is reused"
+roadmap: "0.5, 0.7, 0.14, 0.15"
+covers: [group-escape, ignores-sigterm, self-restart, oneshot, silent-port, build-dir]
+project: test-projects/phoenix_app
+requires: ["mix --version", "initdb --version", "postgres --version"]
+timeout: 900s
+notes: "the watchers (esbuild, tailwind) are BEAM ports in their own process groups; on v0.2.3 they survived down"
+steps:
+  # Fixed ports: nothing else may be using them.
+  - port: {addr: "127.0.0.1:4100", open: false, timeout: 1s}
+  - port: {addr: "127.0.0.1:5544", open: false, timeout: 1s}
+  # Setup is a profile of chained oneshots; it exits on its own.
+  - run: up setup
+    id: setup
+    timeout: 600s
+    expect: {stderr_contains: "stackstart: all processes finished"}
+  - start: up dev
+  - wait_output: {id: up, stream: stderr, contains: "stackstart: all 4 processes ready · logs: ", timeout: 180s}
+  - http: {url: "http://127.0.0.1:4100/", body_contains: "Phoenix Framework", timeout: 20s}
+  # Phoenix's code reloader recompiles on the next request.
+  - mark: {id: up, name: before-ex}
+  - edit_file:
+      path: lib/phoenix_app_web/controllers/page_controller.ex
+      replace: {from: "  def home(conn, _params) do", to: "  # edited by a stackstart conformance case\n  def home(conn, _params) do"}
+  - http: {url: "http://127.0.0.1:4100/", timeout: 30s}
+  - wait_output: {id: up, stream: stdout, contains: "Compiling 1 file (.ex)", since: before-ex, timeout: 30s}
+  # The tailwind watcher (a BEAM port) rebuilds on CSS changes.
+  - mark: {id: up, name: before-css}
+  - edit_file:
+      path: assets/css/app.css
+      replace: {from: "@source \"../css\";", to: "@source \"../css\";\n.stackstart-case { color: red; }"}
+  - wait_output: {id: up, stream: stdout, matches: 'phoenix +\| (?:\x1b\[[0-9;]*m)*Done in \d+m?s', since: before-css, timeout: 30s}
+  - run: down
+    timeout: 60s
+    expect: {stdout_contains: "Stopped \"dev\" in ${WORK}. Logs: "}
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:4100", open: false, timeout: 5s}
+  - port: {addr: "127.0.0.1:5544", open: false, timeout: 5s}
+  - process: {matches: "${WORK}/_build/.*(esbuild|tailwind)", absent: true, timeout: 5s}
+  - run: logs phoenix
+    expect:
+      stdout_contains: ["Access PhoenixAppWeb.Endpoint at http://localhost:4100", "Compiling 1 file (.ex)", "GET /"]
+      stdout_not_contains: "\e"
+      stdout_valid_utf8: true
+  - run: logs migrate
+    expect: {stdout_not_contains: "\e"}
+  # A second start reuses the data directory instead of initialising it again.
+  - start: up dev
+    id: again
+  - wait_output: {id: again, stream: stderr, contains: "all 4 processes ready", timeout: 180s}
+  - expect_output: {id: again, stream: stdout, contains: "pg-init  | postgres data already initialised in .data/pg"}
+  - http: {url: "http://127.0.0.1:4100/", timeout: 20s}
+  - run: down
+    timeout: 60s
+  - wait_exit: {id: again, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:4100", open: false, timeout: 5s}

@@ -367,6 +367,11 @@ Things learned by running real tools. Add to this whenever a test project teache
 - 2026-10-10 · Docker's port proxy accepts TCP before the container's service listens; the postgres image prints "ready to accept connections" for a temporary init server first. Gate on `listening on IPv4 address "0.0.0.0", port 5432`.
 - 2026-10-10 · `mix compile` and `mix assets.setup` in parallel corrupt `_build` (`.beam` write errors); chain them.
 - 2026-10-10 · `initdb` without `LANG` creates a SQL_ASCII cluster and Ecto refuses to create a UTF-8 database; pass `-E UTF8 --locale=C`.
+- 2026-10-11 · `iex -S mix phx.server`: the `iex(1)> ` prompt has no newline, and the watchers (esbuild, tailwind) print right after it, so the terminal line reads `iex(1)> [watch] build finished, …`. A ready regex must be `^iex\(1\)> `, not `iex\(1\)> $`. Agents reading logs should expect REPL prompts glued to the next process output.
+- 2026-10-11 · The tailwind watcher prints `Done in <n>ms` on the first build only if it finishes after Phoenix has attached the port; whether a startup `Done in` appears is timing-dependent. Waiting for a rebuild has to mean "a `Done in` after my edit" (the runner's `mark`/`since`; Phase 2's `wait --after`).
+- 2026-10-11 · Tailwind/daisyUI sometimes print non-ASCII as Perl-style escapes (`\x{2248} tailwindcss`, `\x{1F33C} daisyUI`) and sometimes as the characters; the raw bytes really contain the escape text. Not a stackstart issue, but log greps for `≈`/`🌼` are unreliable.
+- 2026-10-11 · Two processes without dependencies: when one became ready before the other's "starting" event was handled, the other was started a second time (both copies ran, one untracked). Present since v0.x; fixed.
+- 2026-10-11 · With direnv installed, `direnv exec <dir> env` returns the whole environment, so applying it as the `.envrc` layer re-applied the shell's `PAGER`. Only the variables the `.envrc` changes may be applied.
 - 2026-10-10 · Phoenix 1.8's generator writes an `AGENTS.md`; the repo's root `.gitignore` ignores `AGENTS.md` everywhere, so it is not committed. Harmless, but don't be surprised.
 
 ## Current state

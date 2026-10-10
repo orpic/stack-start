@@ -17,7 +17,7 @@ import (
 
 var stepKinds = []string{
 	"run", "start", "wait_output", "expect_output", "wait_exit", "alive", "signal",
-	"sh", "spawn", "write_file", "edit_file", "http", "port", "process", "sleep",
+	"sh", "spawn", "write_file", "edit_file", "http", "port", "process", "sleep", "mark",
 }
 
 // stepFields lists the fields each step accepts, so typos fail loudly.
@@ -37,12 +37,13 @@ var stepFields = map[string][]string{
 	"port":          {},
 	"process":       {},
 	"sleep":         {},
+	"mark":          {},
 }
 
 // mapFields lists the fields of steps whose value is a mapping.
 var mapFields = map[string][]string{
-	"wait_output":   {"id", "stream", "contains", "matches", "count", "timeout", "save"},
-	"expect_output": append([]string{"id", "stream"}, keys(assertionNames)...),
+	"wait_output":   {"id", "stream", "contains", "matches", "count", "timeout", "save", "since"},
+	"expect_output": append([]string{"id", "stream", "since"}, keys(assertionNames)...),
 	"wait_exit":     {"id", "exit", "timeout", "within"},
 	"alive":         {"id", "for"},
 	"signal":        {"id", "sig"},
@@ -52,6 +53,7 @@ var mapFields = map[string][]string{
 	"port":          {"addr", "open", "timeout"},
 	"process":       {"matches", "count", "absent", "timeout"},
 	"sleep":         {"duration", "reason"},
+	"mark":          {"id", "name"},
 }
 
 func keys(m map[string]bool) []string {
@@ -196,6 +198,8 @@ func (r *caseRun) runStep(ctx context.Context, step map[string]any) error {
 		return r.stepProcess(ctx, p)
 	case "sleep":
 		return r.stepSleep(ctx, p)
+	case "mark":
+		return r.stepMark(p)
 	}
 	return fmt.Errorf("unknown step %q", kind)
 }
@@ -358,12 +362,52 @@ func stream(p params) (string, error) {
 	return "", fmt.Errorf("stream must be stdout, stderr or any, got %q", s)
 }
 
+// outputSince returns a command's output on a stream, from the mark named
+// by 'since' if there is one.
+func (r *caseRun) outputSince(c *command, st string, p params) (func() string, error) {
+	since := p.str("since")
+	if since == "" {
+		return func() string { return c.out.get(st) }, nil
+	}
+	m, ok := r.marks[c.id+"/"+since]
+	if !ok {
+		return nil, fmt.Errorf("no mark %q on %s", since, c.id)
+	}
+	return func() string {
+		t := c.out.get(st)
+		if off := m[st]; off <= len(t) {
+			return t[off:]
+		}
+		return ""
+	}, nil
+}
+
+func (r *caseRun) stepMark(p params) error {
+	c, err := r.get(p)
+	if err != nil {
+		return err
+	}
+	if p.str("name") == "" {
+		return fmt.Errorf("mark needs a 'name'")
+	}
+	r.marks[c.id+"/"+p.str("name")] = map[string]int{
+		"stdout": len(c.out.get("stdout")),
+		"stderr": len(c.out.get("stderr")),
+		"any":    len(c.out.get("any")),
+	}
+	return nil
+}
+
 func (r *caseRun) stepWaitOutput(ctx context.Context, p params) error {
 	c, err := r.get(p)
 	if err != nil {
 		return err
 	}
 	st, err := stream(p)
+	if err != nil {
+		return err
+	}
+	text, err := r.outputSince(c, st, p)
 	if err != nil {
 		return err
 	}
@@ -402,12 +446,12 @@ func (r *caseRun) stepWaitOutput(ctx context.Context, p params) error {
 		return fmt.Errorf("save needs 'matches' with a capturing group")
 	}
 	done := func() bool {
-		text := c.out.get(st)
-		if !match(text) {
+		t := text()
+		if !match(t) {
 			return false
 		}
 		if save != "" {
-			r.saved[save] = re.FindStringSubmatch(text)[1]
+			r.saved[save] = re.FindStringSubmatch(t)[1]
 		}
 		return true
 	}
@@ -443,10 +487,13 @@ func (r *caseRun) stepExpectOutput(p params) error {
 	if err != nil {
 		return err
 	}
-	text := c.out.get(st)
+	text, err := r.outputSince(c, st, p)
+	if err != nil {
+		return err
+	}
 	for _, name := range keys(assertionNames) {
 		if v, ok := p[name]; ok {
-			if err := checkAssertion(name, v, text); err != nil {
+			if err := checkAssertion(name, v, text()); err != nil {
 				return fmt.Errorf("%s output of %s: %v", st, c.id, err)
 			}
 		}
