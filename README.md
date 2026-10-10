@@ -135,13 +135,14 @@ web         | VITE v5.0.0  ready in 423 ms
 stackstart status          # see what's running
 stackstart logs backend    # recent lines, then follow (or the last run's full log if stopped)
 stackstart down            # stop everything and wait until it has stopped
+stackstart down --force    # kill everything now instead of waiting for grace periods
 ```
 
 Every run keeps its logs, even after a crash. When something fails, the error ends with the log path and the command to read it:
 
 ```text
 --- FAILED: backend ---
-Cause: process backend exited before becoming ready: process exited: exit status 1
+Cause: process backend exited before becoming ready: exit status 1
 Last output:
   ** (Postgrex.Error) column "organization_id" contains null values
 Full log: ~/Library/Application Support/stackstart/sessions/<project>__dev/runs/20261010-221157-123/backend.log
@@ -203,7 +204,7 @@ Tips for generating stackstart configs:
 
 ```text
 stackstart up <profile>       Start the named profile
-stackstart down                Stop the running stack and wait until it has stopped (from any shell)
+stackstart down                Stop the running stack and wait until it has stopped (from any shell; --force kills now)
 stackstart status              Show running sessions and process states
 stackstart logs <process>      Show a process's log: live, or the last run's after it stopped
 stackstart clean               Delete the logs of finished runs (--all, --dry-run)
@@ -213,6 +214,16 @@ stackstart init                Scaffold a starter stackstart.yaml
 ```
 
 See [ROADMAP.md](ROADMAP.md) for what's next: per-process restart, `up -d`, `wait`, `--json` everywhere, and `exec`.
+
+## Testing
+
+Stackstart is tested black-box: [`conformance/`](conformance/) holds data-driven cases that run the binary and check only what a user or agent can see (exit codes, output, processes, ports, HTTP). Real apps in [`test-projects/`](test-projects/) (Phoenix, Django, FastAPI, Node, React Router, Rails, and a composite stack with cloudflared or ngrok tunnels) are the main test bed.
+
+```bash
+go build -o tmp/stackstart ./cmd/stackstart
+(cd conformance/runner && go build -o ../../tmp/conformance .)
+tmp/conformance --bin tmp/stackstart
+```
 
 ## Configuration reference
 

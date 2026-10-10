@@ -46,7 +46,7 @@ Decided 2026-10-10 by the project owner. This governs every phase.
 
 ### What counts as the public contract
 
-Documented in `conformance/CONTRACT.md` (to be written, work item W1), and changed only deliberately:
+Documented in [`conformance/CONTRACT.md`](conformance/CONTRACT.md), which is authoritative, and changed only deliberately. Summary:
 
 - CLI commands, flags and arguments.
 - Exit codes (today: 0 success, 1 any failure, 130 second Ctrl-C; the full table is item 2.7).
@@ -66,77 +66,9 @@ Documented in `conformance/CONTRACT.md` (to be written, work item W1), and chang
 
 Not contract (cases must not rely on them): the state directory layout, `run.json`, `.state` files, slug format, `stackstart.log` contents, timing beyond documented timeouts.
 
-### Case format
+### Case format, steps and runner
 
-Location: `conformance/cases/<area>/<case-name>/`. Areas: `lifecycle`, `readiness`, `output`, `logs`, `sessions`, `config`, `env`, `signals`, `projects/<project>`, `scenarios`.
-
-```text
-conformance/cases/output/screen-clear-is-a-marker/
-  case.yaml          # required
-  stackstart.yaml    # required unless the case uses a test project
-  ...                # any files the case needs, copied into the work dir
-```
-
-`case.yaml`:
-
-```yaml
-name: screen clear becomes a marker instead of wiping the console
-roadmap: "0.5"                  # roadmap item(s) this covers
-covers: [clear]                 # behavior catalogue rows (see below)
-requires: []                    # commands that must succeed or the case is skipped,
-                                # e.g. ["iex --version", "initdb --version"]
-platforms: [darwin, linux]      # default: both
-project: null                   # or a test project, e.g. test-projects/phoenix_app:
-                                # then the case runs in that folder, not a copy
-exclusive: false                # true = never run in parallel with other cases
-                                # (always true for project cases: fixed ports, shared dirs)
-timeout: 60s                    # whole-case limit
-ports: [web, db]                # free ports allocated as ${PORT_web}, ${PORT_db}
-env: {}                         # extra env for every stackstart command
-notes: "fails on v0.2.3 (console shows ESC[2J)"
-
-steps:
-  - start: up p          # stackstart in the background; id defaults to the first word
-    id: up
-  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
-  - expect_output: {id: up, stream: stdout, not_contains: ["\e[2J", "\e[3J"]}
-  - run: logs app        # foreground; waits for exit (default timeout 30s)
-    expect:
-      exit: 0
-      stdout_equals: "build 1 ok\nerror from build 1\n[stackstart] screen cleared\nbuild 2 ok\n"
-  - signal: {id: up, sig: TERM}
-  - wait_exit: {id: up, exit: 0, timeout: 15s}
-```
-
-Steps (the complete vocabulary; add to it deliberately and document each addition here):
-
-| Step | Meaning |
-| --- | --- |
-| `run: <args>` | Run `stackstart <args>` in the work dir, wait for exit. `expect`: `exit`, `stdout_contains`, `stdout_not_contains`, `stdout_equals`, `stdout_matches` (regex), same for `stderr_*`, `output_*` (both streams). `timeout` (default 30s); hitting it fails the step. |
-| `start: <args>` | Start `stackstart <args>` in the background. `id` names it. Output is captured per stream. |
-| `wait_output` | Wait until `id`'s output (`stream: stdout\|stderr\|any`, default `any`) has `contains`/`matches`. `timeout` required. |
-| `expect_output` | Assert on `id`'s output so far: `contains`, `not_contains`, `matches`, `count: {text: N}`. |
-| `wait_exit` | Wait for `id` to exit. `exit` (expected code), `timeout`, `within` (max seconds since the previous step, for "fails fast" checks). |
-| `signal` | Send `sig` (`TERM`, `INT`, `HUP`, `KILL`) to `id`. |
-| `sh: <script>` | Run a POSIX sh script in the work dir (setup only: create `.git`, occupy a port, write files). Must not start anything that outlives the step unless it carries `${TOKEN}`. |
-| `write_file` / `edit_file` | `path`, `content`; or `path`, `replace: {from, to}`. For "edit a source file, expect a reload". |
-| `http` | `url`, `status` (default 200), `body_contains`; retried until `timeout`. |
-| `port` | `addr`, `open: true\|false`, `timeout`. |
-| `process` | `matches` (regex on the full command line, usually containing `${TOKEN}` or a project path), `count` or `absent: true`, `timeout`. |
-| `sleep` | Last resort. Must say why in `reason`. |
-
-Variables in `case.yaml` and in the case's `stackstart.yaml`: `${BIN}` (stackstart binary), `${WORK}` (work dir), `${CASE}` (case source dir), `${TOKEN}` (unique per case run; put it in long-running synthetic commands so leaks can be found, e.g. `sh -c 'exec -a sleeper-${TOKEN} sleep 300'` or `sleep 300 # ${TOKEN}` via `sh -c`), `${PORT_<name>}`, `${STATE}` (the isolated `XDG_STATE_HOME`). The runner substitutes them before the case runs.
-
-Isolation: every case runs with its own `XDG_STATE_HOME` and, unless `project:` is set, in a fresh copy of its folder under a temp dir.
-
-### Runner
-
-- Location `conformance/runner/`, **its own Go module** (own `go.mod`), importing nothing from `github.com/orpic/stack-start`. Built with `go build`; the only thing it needs to know is `STACKSTART_BIN`.
-- Usage: `conformance [--bin PATH] [--cases DIR] [--filter GLOB] [-j N] [--junit FILE] [--keep-work]`.
-- Output: one line per case, `PASS`/`FAIL`/`SKIP <reason>` with duration; on failure, the failed step, the expectation, and the full captured stdout/stderr of every command in the case.
-- Parallel by default (`-j` = CPU count); `exclusive` cases run alone.
-- Leak check after each case (principle 8): processes matching `${TOKEN}` or the case's project path, and allocated ports. Leaked processes are killed and the case fails.
-- Exit code non-zero if any case failed.
+Specified in [`conformance/README.md`](conformance/README.md) (the single source; this file no longer repeats it). The runner is in [`conformance/runner/`](conformance/runner/), its own Go module. Summary: a case is `conformance/cases/<area>/<name>/case.yaml` plus its `stackstart.yaml` and files; steps are `run`, `start`, `wait_output`, `expect_output`, `mark`, `wait_exit`, `alive`, `signal`, `sh`, `spawn`, `write_file`, `edit_file`, `http`, `port`, `process`, `sleep`; every case gets its own state dir, home, work dir and ports, and a leak check.
 
 ### Behavior catalogue
 
@@ -189,19 +121,20 @@ Every row needs at least one synthetic case and, where a real tool can run offli
 
 | Project | Status | Ports | What it exercises |
 | --- | --- | --- | --- |
-| `phoenix_app` | **Generated and verified** 2026-10-10: `setup` exits 0 (35s, downloads hex deps, esbuild, tailwind); `dev` brings up pg-init → postgres → migrate → phoenix, `GET /` = 200; `down` leaves no tailwind/esbuild/BEAM/postgres processes. **No conformance cases yet.** | phoenix 4100, postgres 5544 | Phoenix 1.8 + LiveView + Ecto. Watchers as BEAM ports (process-group escape), code reloader (recompile on request), LiveReload, tailwind/esbuild rebuild output, graceful BEAM shutdown, `iex -S mix phx.server` prompt, migrations as oneshots, project-local Postgres |
-| `django_app` | To do | runserver 8100 | Django 5.2 LTS, `runserver` StatReloader ("Watching for file changes", "changed, reloading."), `migrate` oneshot on SQLite, Python venv setup |
-| `fastapi_app` | To do | uvicorn 8200 | FastAPI + `uvicorn --reload` (WatchFiles, stderr logging), venv setup |
-| `node_api` | To do | 3100 | Express or Hono in TypeScript with `tsx watch` (mirrors the production tool-server), `npm ci`, `/health` |
-| `react_router_app` | To do | vite 5300 | React Router v7 framework mode (Vite dev server, HMR, banner with Unicode, screen clear on restart), generated by `create-react-router` |
-| `rails_app` | To do. Needs Ruby ≥ 3.2 (machine has only system Ruby 2.6); installing it is approved (decision 2). | puma 3200 | Rails 8, `bin/dev` (foreman + tailwind watcher), puma, Zeitwerk reload, `db:prepare` oneshot, `rails console` prompt |
-| Composite (`test-projects/stackstart.yaml`) | To do | own ports: postgres 5545, phoenix 4110, node_api 3110, react_router 5310 | Mirrors the production stack: Postgres → Phoenix + Node API + React Router + cloudflared quick tunnel, with the tunnel URL captured and injected into Phoenix and the Node API. Also exercises the config cascade: from `test-projects/phoenix_app`, both that project's profiles and the composite profiles are visible. |
+| `phoenix_app` | **Done.** Cases: `dev` (setup, ready, `GET /`, `.ex` edit → "Compiling 1 file (.ex)", CSS edit → tailwind `Done in`, down leaves no BEAM/watchers/postgres, data reused), `iex`, `bad-port`. | phoenix 4100, postgres 5544 | Phoenix 1.8 + LiveView + Ecto. Watchers as BEAM ports (process-group escape), code reloader, tailwind/esbuild rebuilds, graceful BEAM shutdown, `iex -S mix phx.server` prompt, migrations as oneshots, project-local Postgres |
+| `django_app` | **Done.** Case `dev`: setup (venv + pip), migrate, runserver, edit → `<file> changed, reloading.`, down. | runserver 8100 | Django 5.2 LTS, StatReloader, `migrate` oneshot on SQLite, venv setup |
+| `fastapi_app` | **Done.** Case `dev`: setup, uvicorn ready (stderr logging), edit → `WatchFiles detected changes … Reloading...` with a new worker PID, down stops reloader and worker. | uvicorn 8200 | FastAPI + `uvicorn --reload` |
+| `node_api` | **Done.** Case `dev`: `npm ci` + `tsc` (spinner leaves no stray characters), `tsx watch` restart with a screen clear, down stops npm → tsx → node. | 3100 | Express 5 in TypeScript with `tsx watch` (mirrors the production tool-server) |
+| `react_router_app` | **Done.** Case `dev`: Unicode Vite banner as ready signal, route edit → `(ssr) page reload`, `vite.config.ts` edit → `server restarted.`, down. | vite 5300 | React Router 8 framework mode on Vite 8 |
+| `rails_app` | **Done** (Ruby 3.4.11 installed with asdf). Cases `dev` (foreman → puma + tailwind watcher, view reload, CSS rebuild, graceful foreman shutdown) and `console` (`rails-app(dev):001>` prompt). | puma 3200 | Rails 8.1, foreman, puma, tailwind, `db:prepare` oneshot, console prompt |
+| Composite (`test-projects/stackstart.yaml`) | **Done.** Cases: `fullstack-offline`, `fullstack` (real cloudflared; passed 2026-10-11), `fullstack-ngrok` (passed 2026-10-11; skips without an authtoken), `tunnel-fails`, `bad-migration`, `port-in-use`, `cascade`. | postgres 5545, phoenix 4110, node_api 3110, react_router 5310 | The production stack: Postgres → Phoenix + Node API + React Router + tunnel, URL captured and injected into Phoenix (`/tunnel`) and the API (`publicUrl`) |
 
 Composite profiles:
 
 - `fullstack`: real `cloudflared tunnel --url http://127.0.0.1:4110` (network-only; cases `requires` network).
 - `fullstack-offline`: same stack, tunnel replaced by an inline command printing cloudflared's real success banner (copied from real output) and sleeping. Used for every offline case.
-- Scenario profiles reproducing the production incidents: `tunnel-fails` (cloudflared error line with the `api.trycloudflare.com` decoy; must fail fast via `fail_on`, dependents never start), `bad-migration` (a migration that raises when `BROKEN_MIGRATION=1`), `port-in-use` (the case occupies Phoenix's port first). Phase 1 (`--keep-going`, retries, `restart`) is measured against these.
+- Scenario profiles reproducing the production incidents: `tunnel-fails` (cloudflared error line with the `api.trycloudflare.com` decoy; must fail fast via `fail_on`, dependents never start), `bad-migration` (a migration that raises when `BROKEN_MIGRATION=1`, on its own database recreated each run), and the `port-in-use` case (occupies Phoenix's port 4110 before `up fullstack-offline`). Phase 1 (`--keep-going`, retries, `restart`) is measured against these.
+- `setup-all` installs every project's dependencies. Composite profile names must not clash with the projects' own (`setup`, `dev`, `iex`, `console`), because from inside a project both files are visible.
 
 ---
 
@@ -265,7 +198,7 @@ This reverses two v1 non-goals in the PRD: "not a daemon" and "no auto-restart".
 | 0.15 | A profile made only of oneshots never exits. | `up` exits 0 once every process has finished. Verified with phoenix_app's `setup`. |
 | 0.16 | The e2e harness wrote into the developer's real state directory, and one hung `up` froze the suite. | Isolated state per run and a timeout on every command (carried into the runner design). |
 
-Phase 0 is currently tested by Go e2e tests (`e2e/`), which are being replaced by the black-box suite (W3–W4).
+Phase 0 is tested by the conformance suite; [`conformance/MIGRATION.md`](conformance/MIGRATION.md) maps each fix to its cases.
 
 ## Phase 1 — control plane: operate one process at a time
 
@@ -372,18 +305,46 @@ Things learned by running real tools. Add to this whenever a test project teache
 - 2026-10-11 · Tailwind/daisyUI sometimes print non-ASCII as Perl-style escapes (`\x{2248} tailwindcss`, `\x{1F33C} daisyUI`) and sometimes as the characters; the raw bytes really contain the escape text. Not a stackstart issue, but log greps for `≈`/`🌼` are unreliable.
 - 2026-10-11 · Two processes without dependencies: when one became ready before the other's "starting" event was handled, the other was started a second time (both copies ran, one untracked). Present since v0.x; fixed.
 - 2026-10-11 · With direnv installed, `direnv exec <dir> env` returns the whole environment, so applying it as the `.envrc` layer re-applied the shell's `PAGER`. Only the variables the `.envrc` changes may be applied.
+- 2026-10-11 · Phoenix on Bandit reports a taken port as `** (EXIT) :eaddrinuse` under `** (Mix) Could not start application`; it never prints "address already in use". `fail_on` patterns for Phoenix must use `eaddrinuse` (or the Mix line).
+- 2026-10-11 · npm (and ora-style spinners) draw a frame, then `ESC[1G ESC[0K` to erase it. Treating only `\r` as a line reset left a lone `\` line after every npm command; cursor-to-column-1 and erase-line are now resets too.
+- 2026-10-11 · `tsx watch` clears the screen on every restart and prints `change in ./src/server.ts Restarting...`; on SIGTERM it prints `Previous process hasn't exited yet. Force killing...`.
+- 2026-10-11 · Vite 8 (React Router 8) prints `(ssr) page reload <file>` and `program reload` for a route edit even with no browser attached, and `vite.config.ts changed, restarting server...` / `server restarted.` for a config edit, without a screen clear. `react-router dev` relaunches itself once at startup (`[restart] Relaunching with --conditions=development`).
+- 2026-10-11 · uvicorn `--reload` restarts its worker as a new PID (`Started server process [<pid>]`) under the same reloader process; logs go to stderr.
+- 2026-10-11 · Django runserver prints `<abs path> changed, reloading.` then `Watching for file changes with StatReloader`, then the whole startup banner again.
+- 2026-10-11 · Rails 8.1's console prompt is `rails-app(dev):001> ` (hyphenated app name, line counter), not `rails_app(dev)>`.
+- 2026-10-11 · Rails' `bin/dev` runs `gem install foreman` when missing, but under asdf the new executable has no shim until `asdf reshim`, so `exec foreman` fails with "not found". Putting foreman in the Gemfile and using `bundle exec foreman` avoids it.
+- 2026-10-11 · Tailwind's standalone CLI (used by Phoenix and Rails) prints `Done in <n>ms` per build; colors split the line into several SGR runs, so console matching needs colors ignored.
 - 2026-10-10 · Phoenix 1.8's generator writes an `AGENTS.md`; the repo's root `.gitignore` ignores `AGENTS.md` everywhere, so it is not committed. Harmless, but don't be surprised.
 
 ## Current state
 
-As of 2026-10-10, late evening. Work is on branch `agent-native-blackbox` (from `main`); see `git log main..agent-native-blackbox` for what is committed.
+As of 2026-10-11, early morning. Everything is committed on branch `agent-native-blackbox` (from `main`); see `git log main..agent-native-blackbox`. Nothing is pushed.
 
-Done and verified:
+Done (W1–W8):
 
-- Phase 0 code (0.1–0.16): `internal/output`, `internal/proctree`, `internal/session/runs.go`, `internal/cli/clean.go`, and changes across supervisor, orchestrator, logmux, readiness, config, env, tail, cli. `go vet` and `golangci-lint` clean; Go unit tests pass with `-race`.
-- Go e2e suites in `e2e/` (31 original + 32 Phase 0 + 13 real-tool) all pass. They are the **old** testing approach and are to be replaced (W3–W4). Don't extend them.
-- `test-projects/phoenix_app` generated (Phoenix 1.8.1), with `stackstart.yaml` (`setup`, `dev`) and `config/dev.exs` pointing at the project-local Postgres via `DB_PORT` (default 5544). Verified end to end (see the projects table). `.gitignore` gained `/.data/`.
-- `test-projects/tools/pg-init` (idempotent, UTF-8).
-- README, TECH.md, AGENTS.md (local only; it is gitignored) updated for Phase 0. CI has a `realworld` job that has never run on GitHub; it will be replaced in W4.
+- **W1** `conformance/CONTRACT.md` (the public contract) and `conformance/README.md` (case format, steps, running).
+- **W2** The runner, `conformance/runner/` (own Go module, imports nothing from stackstart): every step in the vocabulary plus `mark`/`since`, `save`, `plain`; variables; isolated state, home and ports; parallel and exclusive cases; leak check by process-tree sampling and token; JUnit. Self-tests in `conformance/runner/selftest/` (cases that must pass and cases that must fail: leak, untokened descendant, timeout, still running).
+- **W3/W3b** 100 cases: cli, config, readiness, lifecycle, output, logs, sessions, env, signals, realtools (13 real tools) and projects (6 projects + composite). `conformance/MIGRATION.md` maps every old Go test (76 e2e, 144 unit) to its case.
+- **W4** Run against v0.2.3 (76 of 83 then-existing cases fail; details in MIGRATION.md). `e2e/`, every `internal/**/*_test.go` and `internal/config/testdata/` deleted; testify dropped. CI (`.github/workflows/ci.yaml`): lint for both modules; conformance (runner self-test + all non-project cases) on Ubuntu and macOS on every push; the full suite with every toolchain nightly and on manual dispatch. The synthetic suite was also run on Linux (arm64, in Docker): 69 passed, 14 skipped (tools absent), 0 failed.
+- **W5–W7** Test projects: phoenix_app (+ `iex` profile, `/tunnel` route, breakable migration), django_app, fastapi_app, node_api, react_router_app, rails_app, and the composite stack. Full suite on this machine: **100 passed, 0 failed, 0 skipped in about 2 minutes**, no leftover processes.
+- **W8** README (testing, `down --force`), TECH.md §14/§15.1 and layout, `test-projects/README.md`, AGENTS.md (local, gitignored), this file.
 
-Not done: W1–W9 above. Next step: **W1**.
+Bugs found and fixed by the new suite (each has a case):
+
+1. A process without dependencies could be **started twice** when another became ready first; the first copy leaked past `down` (lifecycle/each-process-starts-once).
+2. With **direnv** installed, the `.envrc` layer re-applied the whole shell environment, undoing the pager defaults (env/layering). A blocked `.envrc` now shows direnv's own message.
+3. A second **`down`** force-killed the stack while the hint said it would wait; `down --force` added (signals/down-no-wait).
+4. An unparsable **`stackstart.yaml`** was reported as "no profile named …" (config/parse-error-is-reported).
+5. Validation rejected the documented **`$${VAR}`** escape (env/dollar-escapes).
+6. An invalid **`.env`** was silently ignored (env/errors).
+7. **npm's spinner** left a stray `\` line after every npm command (output/spinner-erased-with-cursor).
+8. Exit causes said "process exited: process exited: …" twice over (lifecycle/exit-*).
+
+Incident during the night: building v0.2.3, I ran `git stash` with nothing to stash, and the following `git stash pop` applied the owner's old `stash@{0}` ("WIP on main: ed02360 add agentic guide") onto the branch with conflicts. The working tree was restored with `git checkout HEAD -- <files>` before anything was committed; **`stash@{0}` is still there, unchanged**. Old builds now use `git worktree` only.
+
+Not done:
+
+- **W9** (Phase 1 design note) is next; per the work order it stops for the owner's review. Phase 1 is not implemented.
+- `status --json` (1.7) is still needed for the one dropped old test (real PIDs in the session record).
+- Prefix colors are not covered (the runner has no terminal).
+- CI has not run on GitHub yet; the first push will tell whether the Ubuntu/macOS runners behave like this machine and the Linux container.
