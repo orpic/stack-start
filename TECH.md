@@ -60,7 +60,6 @@ Stackstart vendors a deliberately small dependency surface. Every dep below is j
 - **`gopkg.in/yaml.v3`** - YAML parser. The canonical Go YAML library. Supports comments, anchors, and the strictness we need for clear error messages.
 - **`github.com/creack/pty`** - PTY (pseudo-terminal) creation for child processes. Tiny dependency, single-purpose, used by ttyd, gotty, and most Go process supervisors.
 - **`github.com/fatih/color`** - ANSI color output for the interleaved console writer. Tiny, well-tested. Alternative considered: `charmbracelet/lipgloss` (rejected: bigger, geared toward TUIs which we explicitly are not building in v1).
-- **`github.com/stretchr/testify/require`** - test assertions with clean failure messages and short-circuit-on-failure semantics.
 - **`log/slog`** (stdlib, Go 1.21+) - structured logging for stackstart's own diagnostic logs (NOT child process output). Zero external dep. Defaults to a JSON handler in CI / `--log-format=json`, text handler for interactive use.
 - **`text/template`** (stdlib) - file template rendering for the optional `templates:` block on processes. Stdlib-only.
 - **`syscall`** (stdlib) - process group setup (`Setpgid`), file locking (`Flock`), signal sending. Platform-specific code lives behind build tags (see section 8).
@@ -139,15 +138,16 @@ stack-start/
       tail.go                  # open + seek + poll (handles file truncation)
     version/                   # build-time version info
       version.go               # vars set via -ldflags at build time
-  e2e/                         # end-to-end tests
-    fixtures/                  # YAML profiles for e2e tests
-    e2e_test.go                # build binary, run real `stackstart up`
-    phase0_test.go             # ecosystem-behavior tests against fakeproc fixtures
-    realworld_test.go          # same guarantees against real tools (tag: realworld)
-    fakeproc/                  # fixture program reproducing real process behaviors
+  conformance/                 # the test suite (black-box, see section 14)
+    CONTRACT.md                # everything cases may rely on
+    README.md                  # case format and how to run
+    MIGRATION.md               # where each removed Go test is now covered
+    cases/<area>/<case>/       # case.yaml + stackstart.yaml + files
+    runner/                    # separate Go module that runs the cases
+  test-projects/               # real apps (Phoenix, Django, ...) used by cases
   .github/
     workflows/
-      ci.yaml                  # PR: vet + test + golangci-lint
+      ci.yaml                  # lint + conformance (every push), full suite nightly
       release.yaml             # tag push: goreleaser release
   .goreleaser.yaml             # release pipeline config
   .golangci.yaml               # linter config
@@ -956,88 +956,51 @@ All commands implemented as cobra subcommands in `internal/cli/`. The root comma
 
 ## 14. Testing strategy
 
-### 14.1 Unit tests (per package)
+Stackstart has one test suite: the black-box **conformance suite** in [`conformance/`](conformance/). There are no Go unit tests and no Go e2e tests (both were removed on 2026-10-11, see [`conformance/MIGRATION.md`](conformance/MIGRATION.md)).
 
-Every `internal/<pkg>` has a `<pkg>_test.go` using stdlib `testing` + `testify/require`. Coverage target ~70% for v1, enforced as a soft gate (warn, don't fail PR).
+### 14.1 Principles
 
-Examples:
+- **Tests are data.** A case is a folder with a `case.yaml` (steps and expectations), usually a `stackstart.yaml`, and any files it needs. Nothing in a case is written in Go.
+- **Only the public contract is observed:** exit codes, stdout/stderr, processes, ports, HTTP, files in the project, and the files in the logs directory `up` prints. [`conformance/CONTRACT.md`](conformance/CONTRACT.md) lists everything that is contract; internal files (`run.json`, session records, `.state` files) never are.
+- **No shared fixtures.** Synthetic behaviors (prompts without newlines, screen clears, 200 KB lines, SIGTERM-ignoring processes, setsid'd children, cloudflared output) are inline POSIX `sh` and `perl` in each case's own `stackstart.yaml`.
+- **Real tools and real projects first.** `conformance/cases/realtools/` runs IEx, Elixir ports, `mix`, `node --watch`, `bun --watch`, `npm`, Postgres, Redis, Python, `go run` and Postgres in Docker. `conformance/cases/projects/` runs the apps in `test-projects/`. Each skips with the reason when its tool is missing (`requires:`).
+- **The runner is the only code**, a separate Go module in `conformance/runner/` that imports nothing from stackstart. A rewrite of stackstart in another language keeps every case and the runner unchanged.
+- **Every case checks for leaks.** The runner records every process descended from the commands a case ran (by sampling the process table) and fails the case if any is still alive afterwards, or if a port the case allocated is still open.
+- **Every case is isolated:** its own `XDG_STATE_HOME`, its own `HOME` (unless it needs the developer's toolchains), its own work directory and free ports.
 
-- `internal/config/parse_test.go` - parses every fixture in `testdata/`, asserts on the resulting Go struct.
-- `internal/config/validate_test.go` - feeds intentionally broken configs (cycles, absolute paths, missing capture refs), asserts on error contents.
-- `internal/config/resolve_test.go` - synthesizes temp directory trees, asserts on which profile lookup picks.
-- `internal/interpolate/resolve_test.go` - table-driven tests for `${producer.name}` and `${envrc.VAR}` resolution including escape `$$`.
-- `internal/readiness/log_regex_test.go` - feeds lines, asserts `Satisfied()` transitions.
-- `internal/session/lock_test.go` - acquires lock, forks helper process trying to re-acquire, asserts `EWOULDBLOCK`.
-
-### 14.2 End-to-end tests
-
-In `e2e/`, a single test binary that:
-
-1. Builds the `stackstart` binary into a `t.TempDir()` (one-time per test run via `sync.Once`).
-2. For each test case: writes a fixture `stackstart.yaml` in a temp project dir, runs `stackstart up <profile>` as a real subprocess, asserts on:
-   - Exit code
-   - Per-process log file contents
-   - Session record JSON contents
-   - Stale reaping behavior (kill -9 the stackstart process, verify next `status` cleans up)
-
-Fixture commands use cheap shell builtins:
-
-```yaml
-profiles:
-  basic:
-    processes:
-      sleeper:
-        cwd: .
-        cmd: sh -c "echo READY; sleep 60"
-        readiness:
-          timeout: 5s
-          checks:
-            - log: "READY"
-```
-
-### 14.2.1 Ecosystem conformance
-
-Every behavior in the ROADMAP's behavior catalogue is tested twice:
-
-- **Fixtures** (`e2e/fakeproc`, `e2e/phase0_test.go`). `fakeproc <mode>` is a small Go program that reproduces one real behavior deterministically: prompts without a newline (IEx), screen clears (tsc, vite, bun, nodemon), spinners and redraws (npm, docker compose), >64 KB lines, silent servers, child trees, children that leave the process group (BEAM ports), SIGTERM-ignoring processes, pagers (psql, git), cloudflared success and failure output, and so on. Runs in CI on macOS and Linux with no toolchains installed.
-- **Real tools** (`e2e/realworld_test.go`, build tag `realworld`): IEx, Elixir ports, `mix`, `node --watch`, `bun --watch`, `npm run`, native Postgres + `psql`, Redis, Python, `go run`, Postgres in Docker. Each test skips with the reason when its tool is missing.
+### 14.2 Running
 
 ```bash
-go test ./e2e/                                            # fixtures, every PR
-go test -tags realworld -timeout 900s -run TestRW_ ./e2e/  # real tools
+go build -o tmp/stackstart ./cmd/stackstart
+(cd conformance/runner && go build -o ../../tmp/conformance .)
+tmp/conformance --bin tmp/stackstart                       # everything
+tmp/conformance --bin tmp/stackstart --skip-projects       # what CI runs on every push
+tmp/conformance --bin tmp/stackstart --filter 'output/*'   # one area
+conformance/runner/selftest/run.sh tmp/conformance tmp/stackstart   # the runner's own checks
 ```
 
-Every e2e test runs with its own `XDG_STATE_HOME` (set in `TestMain`), and every command it runs has a timeout, so a hung `up` fails that test instead of the suite. `STACKSTART_E2E_BINARY=<path>` runs the suite against a prebuilt binary, for example to confirm that new tests fail against an older release.
+The case format and step vocabulary are in [`conformance/README.md`](conformance/README.md).
 
-### 14.3 What we don't test
+### 14.3 Adding a behavior
 
-- We do NOT test direnv shellout in CI (would require installing direnv in CI runners). Native `.envrc` parser path IS tested unit-style.
-- We do NOT test `stackstart logs` interactively; we test the `tail` package's polling logic via a unit test that writes to a file and asserts the tailer sees the new bytes.
+1. Add or change the contract in `conformance/CONTRACT.md`.
+2. Add a case under the matching area. Use a real tool or test project when one shows the behavior; add a synthetic case for the deterministic edge.
+3. Run the case against a binary without the change (an older release, or a `git worktree` of the commit before) and record in `notes` that it fails there and why.
+
+### 14.4 What we don't test
+
+- Prefix colors: they are only used on a terminal, and the runner captures through pipes.
+- Behavior on Windows (not supported).
 
 ## 15. CI and release
 
-### 15.1 PR workflow (`.github/workflows/ci.yaml`)
+### 15.1 CI workflow (`.github/workflows/ci.yaml`)
 
-Triggered on every PR and push to `main`:
+- `lint`: `go vet` and golangci-lint for the main module and for `conformance/runner`.
+- `conformance` (every push and PR, Ubuntu and macOS): builds stackstart and the runner, runs the runner's self-test, then every case except the test projects. Real-tool cases run where the tool is already on the runner image and skip otherwise.
+- `full` (nightly and manual dispatch, Ubuntu): installs Node, Bun, Elixir, Python, Ruby, Postgres and Redis, pulls `postgres:16`, and runs every case, test projects included.
 
-```yaml
-name: ci
-on: [pull_request, push]
-jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: 'stable' }
-      - run: go vet ./...
-      - run: go test ./...
-      - uses: golangci/golangci-lint-action@v6
-        with: { version: latest }
-```
+Each job uploads a JUnit report.
 
 ### 15.2 Release workflow (`.github/workflows/release.yaml`)
 

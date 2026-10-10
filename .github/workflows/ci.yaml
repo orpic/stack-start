@@ -1,28 +1,36 @@
 name: ci
-on: [pull_request, push]
+on:
+  pull_request:
+  push:
+  schedule:
+    - cron: "17 3 * * *" # nightly: real tools and test projects
+  workflow_dispatch:
+
 jobs:
-  unit:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+  lint:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "stable"
       - run: go vet ./...
-      - name: Unit tests with race detection and coverage
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./internal/...
-      - name: Print coverage summary
-        run: go tool cover -func=coverage.out | tail -1
+      - run: cd conformance/runner && go vet ./...
       - uses: golangci/golangci-lint-action@v7
         with:
           version: "v2.11.4"
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: "v2.11.4"
+          working-directory: conformance/runner
 
-  e2e:
+  # The black-box conformance suite (conformance/README.md) on every push:
+  # every case except the test projects. Real-tool cases run where the tool
+  # is already on the runner image and skip otherwise.
+  conformance:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
@@ -30,13 +38,27 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "stable"
-      - name: E2e tests
-        run: go test -v -timeout 180s ./e2e/
+      - name: Build stackstart and the runner
+        run: |
+          mkdir -p tmp
+          go build -o tmp/stackstart ./cmd/stackstart
+          (cd conformance/runner && go build -o ../../tmp/conformance .)
+      - name: Runner self-test
+        run: conformance/runner/selftest/run.sh tmp/conformance tmp/stackstart
+      - name: Conformance cases
+        run: tmp/conformance --bin tmp/stackstart --skip-projects --junit tmp/conformance.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-${{ matrix.os }}
+          path: tmp/conformance.xml
 
-  # Real tools (Elixir, Node, Bun, Postgres, Redis, Python, Go, Docker).
-  # Each test skips with a reason when its tool is missing.
-  realworld:
+  # Everything, with every toolchain installed: real tools (Elixir, Node,
+  # Bun, Postgres, Redis, Python, Go, Docker) and the test projects.
+  full:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -49,13 +71,29 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
-          elixir-version: "1.17"
-      - name: Install Postgres and Redis tools
+          elixir-version: "1.18"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: Install Postgres and Redis
         run: |
           sudo apt-get update
           sudo apt-get install -y redis-server postgresql
           echo "$(ls -d /usr/lib/postgresql/*/bin | tail -1)" >> "$GITHUB_PATH"
-      - name: Pull images used by Docker tests
+      - name: Pull images used by Docker cases
         run: docker pull postgres:16
-      - name: Real-tool tests
-        run: go test -tags realworld -v -timeout 900s -run TestRW_ ./e2e/
+      - name: Build stackstart and the runner
+        run: |
+          mkdir -p tmp
+          go build -o tmp/stackstart ./cmd/stackstart
+          (cd conformance/runner && go build -o ../../tmp/conformance .)
+      - name: All conformance cases
+        run: tmp/conformance --bin tmp/stackstart -v --junit tmp/conformance.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-full
+          path: tmp/conformance.xml

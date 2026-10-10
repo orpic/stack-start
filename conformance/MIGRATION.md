@@ -131,3 +131,28 @@ Every `fakeproc` mode became inline `sh`/`perl` in the case's own `stackstart.ya
 | **session**: Slug, SessionPaths, Write/ReadRecord, Write/ReadProcessState, RemoveRecord | **Dropped** (internal file formats). Their purpose, finding a session and its state, is covered by sessions/status, sessions/duplicate-up-refused and every `down`/`logs` case. |
 | **tail**: Follow_NewContent, FollowFrom_ShowsRecentHistoryThenNewLines, Follow_FileNotFound | logs/live-follow |
 | **tail**: LastLines, LastLines_NoTrailingNewlineAndLongFile | logs/live-follow (last 10 lines), logs/after-failed-run (whole log) |
+
+## Proof against v0.2.3
+
+On 2026-10-11 the full suite (83 cases) was run against v0.2.3 (commit `2d5a1c9`, built from a `git worktree`): **7 passed, 76 failed** in 6 minutes, most of it hung commands hitting their timeouts.
+
+The 7 that pass test behavior that v0.2.3 already had: `cli/version`, `cli/list`, `cli/list-empty`, `cli/init-creates-config`, `cli/init-refuses-existing`, `lifecycle/on-exit-ignore`, `lifecycle/oneshot-failure-fails-stack`.
+
+Of the 76 failures, these fail at the step that checks the Phase 0 fix itself:
+
+| Case | Where v0.2.3 fails |
+| --- | --- |
+| readiness/timeout-fails, readiness/timeout-while-logging, readiness/timeout-while-silent, lifecycle/oneshot-timeout, lifecycle/failed-process-is-stopped | `up` never exits: the readiness timeout never fires (0.4). |
+| lifecycle/oneshot-only-profile-exits | `up` never exits (0.15). |
+| env/pager-defaults, env/layering, env/errors, env/envrc-without-direnv, config/cascade | `up` of a oneshot never exits (0.15); the pager case would also hang at `(END)` (0.13). |
+| output/self-restart-markers | `ESC c` reaches the console (0.5). |
+| readiness/fail-on-fails-fast | no `fail_on`; the error URL is captured as the tunnel URL (0.10, 0.11). |
+| readiness/fail-on-after-ready-warns | no `fail_on` warning (0.10). |
+| lifecycle/exit-after-ready-fails, lifecycle/exit-before-ready-fails, logs/after-failed-run | different cause text, no `Full log:` line, logs deleted (0.7). |
+| logs/picks-profile-with-process | `logs` of a finished run fails: logs were deleted on exit (0.7). |
+| logs/keeps-ten-runs | no `clean` command (0.7). |
+| config/validate-valid, config/valid-variants, config/validation-errors | no `capture:` checks or `fail_on` (0.10, 0.11). |
+| config/parse-error-is-reported | YAML errors reported as "no profile named" (fixed 2026-10-11). |
+| cli/help | no `clean` command. |
+
+The remaining cases fail at their first `wait_output` for `stackstart: … ready · logs: <dir>`, a notice v0.2.3 did not print. For those, the Go e2e tests they were ported from had already been shown to fail on v0.2.3 for the right reason (32 of 32 Phase 0 tests, 2026-10-10). The cases for fixes made after Phase 0 were each checked against the binary just before the fix: lifecycle/each-process-starts-once (double start), signals/down-no-wait (second `down` force-killed), env/layering (direnv re-applied `PAGER`), env/dollar-escapes (`$${VAR}` rejected), config/parse-error-is-reported.
