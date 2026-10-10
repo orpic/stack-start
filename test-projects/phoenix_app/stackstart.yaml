@@ -1,0 +1,57 @@
+# Phoenix 1.8 + LiveView + Ecto, with a project-local Postgres.
+# Ports: Phoenix 4100, Postgres 5544.
+profiles:
+  # Install dependencies. Run once after cloning: stackstart up setup
+  setup:
+    processes:
+      deps:
+        kind: oneshot
+        cmd: mix deps.get
+        readiness: {timeout: 300s}
+      # compile and assets.setup both build into _build; running them in
+      # parallel corrupts it, so they are chained.
+      compile:
+        kind: oneshot
+        cmd: mix compile
+        depends_on: [deps]
+        readiness: {timeout: 300s}
+      assets:
+        kind: oneshot
+        cmd: mix assets.setup
+        depends_on: [compile]
+        readiness: {timeout: 300s}
+
+  dev:
+    processes:
+      pg-init:
+        kind: oneshot
+        cmd: ../tools/pg-init .data/pg
+        readiness: {timeout: 60s}
+      postgres:
+        cmd: postgres -D .data/pg -p 5544 -c listen_addresses=127.0.0.1 -c unix_socket_directories=''
+        depends_on: [pg-init]
+        readiness:
+          timeout: 30s
+          checks:
+            - tcp: 127.0.0.1:5544
+      migrate:
+        kind: oneshot
+        cmd: mix ecto.create && mix ecto.migrate
+        depends_on: [postgres]
+        env:
+          DB_PORT: "5544"
+        readiness: {timeout: 120s}
+      phoenix:
+        cmd: mix phx.server
+        depends_on: [migrate]
+        env:
+          DB_PORT: "5544"
+          PORT: "4100"
+        fail_on:
+          - "\\*\\* \\(Mix\\) Could not start application"
+          - "address already in use"
+        readiness:
+          timeout: 120s
+          checks:
+            - log: "Access PhoenixAppWeb.Endpoint at"
+            - tcp: 127.0.0.1:4100

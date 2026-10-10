@@ -1,0 +1,15 @@
+#!/bin/sh
+# Create a project-local Postgres data directory once. Idempotent, so it can
+# run as a oneshot on every `stackstart up`.
+# Usage: pg-init <data-dir>
+set -eu
+dir="$1"
+if [ -f "$dir/PG_VERSION" ]; then
+  echo "postgres data already initialised in $dir"
+  exit 0
+fi
+mkdir -p "$dir"
+# Explicit encoding: otherwise initdb uses the shell locale, and a shell
+# without LANG (CI, agents) gets SQL_ASCII, which Ecto rejects.
+initdb -D "$dir" -A trust -U postgres -E UTF8 --locale=C --no-instructions
+echo "postgres data initialised in $dir"
