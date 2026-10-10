@@ -1,0 +1,19 @@
+# Rails defaults (the app was generated with --skip-git).
+/.bundle
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+/tmp/pids/*
+!/tmp/pids/
+!/tmp/pids/.keep
+/storage/*
+!/storage/.keep
+/tmp/storage/*
+!/tmp/storage/
+!/tmp/storage/.keep
+/public/assets
+/app/assets/builds/*
+!/app/assets/builds/.keep
+/config/master.key
+/vendor/bundle
