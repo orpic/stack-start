@@ -998,7 +998,7 @@ The case format and step vocabulary are in [`conformance/README.md`](conformance
 
 - `lint`: `go vet` and golangci-lint for the main module and for `conformance/runner`.
 - `conformance` (every push and PR, Ubuntu and macOS): builds stackstart and the runner, runs the runner's self-test, then every case except the test projects. Real-tool cases run where the tool is already on the runner image and skip otherwise.
-- `full` (nightly and manual dispatch, Ubuntu): installs Node, Bun, Elixir, Python, Ruby, Postgres and Redis, pulls `postgres:16`, and runs every case, test projects included.
+- `full` (manual dispatch only, e.g. before a release; Ubuntu): installs Node, Bun, Elixir, Python, Ruby, Postgres and Redis, pulls `postgres:16`, and runs every case, test projects included.
 
 Each job uploads a JUnit report.
 

@@ -332,7 +332,7 @@ As of 2026-10-11, evening. Everything is on branch `agent-native-blackbox` (PR o
 | 4 | Port variables (`ports:` + `${port.x}`) so worktrees run side by side; port-clash warnings naming the holder. |
 | 5 | `describe --json`; `schema` (JSON Schema); `stackstart mcp` (MCP server whose tools run the CLI); `init --agents` (prints an AGENTS.md section). |
 
-Verification on 2026-10-11: the full suite on this Mac **132 passed, 0 failed, 0 skipped** (about 2.5 minutes, every test project and real tool including cloudflared and ngrok tunnels); the synthetic suite on Linux arm64 (Docker, non-root) **98 passed, 0 failed, 15 skipped** (tools absent). CI runs lint and the non-project suite on Ubuntu and macOS on every push, and everything nightly.
+Verification on 2026-10-11: the full suite on this Mac **132 passed, 0 failed, 0 skipped** (about 2.5 minutes, every test project and real tool including cloudflared and ngrok tunnels); the synthetic suite on Linux arm64 (Docker, non-root) **98 passed, 0 failed, 15 skipped** (tools absent). CI runs lint and the non-project suite on Ubuntu and macOS on every push; the full suite with every toolchain runs only when started by hand.
 
 Phase 1 acceptance criteria, as cases on the real composite stack: `projects/composite/restart-phoenix` (Postgres, API, web and tunnel keep their PIDs and URL) and `projects/composite/bad-migration-keep-going` (fix the data, `start migrate`, Phoenix comes up).
 
@@ -343,4 +343,4 @@ Not done / next:
 - A TUI (skipped by the owner).
 - Windows (out of scope).
 - Prefix colors are not covered by tests (the runner has no terminal).
-- The nightly `full` CI job (all toolchains) has not run on GitHub yet; trigger it with "Run workflow" on the ci workflow to check it before merging.
+- The `full` CI job (all toolchains) is manual only; it has not been run on GitHub yet.
