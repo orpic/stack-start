@@ -315,6 +315,7 @@ Things learned by running real tools. Add to this whenever a test project teache
 - 2026-10-11 · Rails 8.1's console prompt is `rails-app(dev):001> ` (hyphenated app name, line counter), not `rails_app(dev)>`.
 - 2026-10-11 · Rails' `bin/dev` runs `gem install foreman` when missing, but under asdf the new executable has no shim until `asdf reshim`, so `exec foreman` fails with "not found". Putting foreman in the Gemfile and using `bundle exec foreman` avoids it.
 - 2026-10-11 · Tailwind's standalone CLI (used by Phoenix and Rails) prints `Done in <n>ms` per build; colors split the line into several SGR runs, so console matching needs colors ignored.
+- 2026-10-11 · Phoenix on Linux needs `inotify-tools` for its file watching (code reloader, LiveReload); without it a CSS or .ex edit is never noticed (`[error] inotify-tools is needed to run file_system`). macOS needs nothing. On Linux, uvicorn may not print "Stopping reloader process" when stopped.
 - 2026-10-10 · Phoenix 1.8's generator writes an `AGENTS.md`; the repo's root `.gitignore` ignores `AGENTS.md` everywhere, so it is not committed. Harmless, but don't be surprised.
 
 ## Current state

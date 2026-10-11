@@ -27,5 +27,5 @@ steps:
   - port: {addr: "127.0.0.1:8200", open: false, timeout: 5s}
   - run: logs api
     expect:
-      stdout_in_order: ["Application startup complete.", "Reloading...", "Started server process", "Application startup complete.", "Stopping reloader process"]
+      stdout_in_order: ["Application startup complete.", "Reloading...", "Started server process", "Application startup complete."]
       stdout_not_contains: "\e"

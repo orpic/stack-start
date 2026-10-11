@@ -80,7 +80,8 @@ jobs:
       - name: Install Postgres and Redis
         run: |
           sudo apt-get update
-          sudo apt-get install -y redis-server postgresql
+          # inotify-tools: Phoenix's file watching (code reloader, live reload) on Linux.
+          sudo apt-get install -y redis-server postgresql inotify-tools
           echo "$(ls -d /usr/lib/postgresql/*/bin | tail -1)" >> "$GITHUB_PATH"
       - name: Pull images used by Docker cases
         run: docker pull postgres:16
@@ -91,6 +92,12 @@ jobs:
           mkdir -p tmp
           go build -o tmp/stackstart ./cmd/stackstart
           (cd conformance/runner && go build -o ../../tmp/conformance .)
+      - name: Install the test projects' dependencies
+        run: |
+          for p in phoenix_app django_app fastapi_app node_api react_router_app rails_app; do
+            (cd test-projects/$p && ../../tmp/stackstart up setup)
+          done
+          (cd test-projects && ../tmp/stackstart up setup-all)
       - name: All conformance cases
         run: tmp/conformance --bin tmp/stackstart -v --timeout-scale 2 --junit tmp/conformance.xml
       - uses: actions/upload-artifact@v4
