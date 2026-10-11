@@ -25,6 +25,6 @@ steps:
   - run: logs b --no-follow
     expect: {stdout_equals: "b started\nb started\nb started\n"}
   - run: restart ghost
-    expect: {exit: 1, stderr_contains: ["process \"ghost\" not found in profile \"p\"", "processes: a, b, c"]}
+    expect: {exit: 2, stderr_contains: ["process \"ghost\" not found in profile \"p\"", "processes: a, b, c"]}
   - run: down
   - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

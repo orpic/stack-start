@@ -35,4 +35,4 @@ steps:
   - run: list --config ${WORK}/sub/stackstart.yaml
     expect: {stdout_contains: "dev", stdout_not_contains: ["root-only", "home-only"]}
   - run: up other-project
-    expect: {exit: 1, stderr_contains: "no profile named \"other-project\" applies to directory ${WORK}"}
+    expect: {exit: 2, stderr_contains: "no profile named \"other-project\" applies to directory ${WORK}"}

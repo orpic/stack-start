@@ -1,0 +1,28 @@
+name: exit codes are stable; --json commands print a structured error
+roadmap: "2.7"
+steps:
+  - run: validate nope
+    expect: {exit: 2, stderr_contains: "no profile named \"nope\""}
+  - run: up --bogus
+    expect: {exit: 2, stderr_contains: ["unknown flag: --bogus", "See 'stackstart up --help'."]}
+  - run: up
+    expect: {exit: 2, stderr_contains: "accepts 1 arg(s), received 0"}
+  - run: down
+    expect: {exit: 3, stderr_contains: "no running stackstart session found for ${WORK}"}
+  - run: status --json
+    expect: {exit: 0, stdout_json: {schema: 1}}
+  - run: wait app --json
+    expect: {exit: 3, stdout_json: {ok: false, error.code: no_session}}
+  - run: up p
+    expect: {exit: 1, stderr_contains: "--- FAILED: app ---"}
+  - run: up r -d
+    expect: {exit: 1, stderr_contains: "--- FAILED: app ---"}
+  - run: up q -d
+    timeout: 10s
+  - run: wait app --for exit --timeout 300ms
+    expect: {exit: 5, stderr_contains: "timed out after 300ms"}
+  - run: wait app --for exit --timeout 300ms --json
+    expect: {exit: 5, stdout_json: {ok: false, error.code: timeout}}
+  - run: restart ghost --json
+    expect: {exit: 2, stdout_json: {ok: false, error.code: not_found}}
+  - run: down

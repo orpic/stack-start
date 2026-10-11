@@ -12,3 +12,8 @@ profiles:
         kind: oneshot
         cmd: psql -h 127.0.0.1 -p ${PORT_pg} -U postgres -c 'select 40 + 2 as answer'
         depends_on: [db]
+        # Postgres logs "listening on IPv4" about 50 ms before it accepts
+        # queries ("the database system is starting up"); retry through it.
+        restart: on-failure
+        retries: 10
+        backoff: 200ms

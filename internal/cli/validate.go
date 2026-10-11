@@ -26,11 +26,11 @@ func newValidateCmd() *cobra.Command {
 
 			profile, filePath, err := config.Resolve(cwd, profileName, home, cfgFile)
 			if err != nil {
-				return err
+				return usageError(err)
 			}
 
 			if err := config.Validate(profile, profileName); err != nil {
-				return err
+				return usageError(err)
 			}
 
 			fmt.Printf("Profile %q from %s is valid.\n", profileName, filePath)

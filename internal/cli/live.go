@@ -31,11 +31,11 @@ func findLive(profile, process string) (session.Record, error) {
 	}
 	switch len(recs) {
 	case 0:
-		return session.Record{}, fmt.Errorf("no running stackstart session found for %s", cwd)
+		return session.Record{}, noSessionError(fmt.Errorf("no running stackstart session found for %s", cwd))
 	case 1:
 		return recs[0], nil
 	default:
-		return session.Record{}, ambiguousSessions(recs)
+		return session.Record{}, ambiguousError(ambiguousSessions(recs))
 	}
 }
 
@@ -126,13 +126,7 @@ func newProcessCmd(op, short, long, example string) *cobra.Command {
 				}
 			})
 			if err != nil {
-				if asJSON {
-					if ce, ok := err.(*control.Error); ok {
-						_ = printJSON(map[string]any{"ok": false, "error": ce})
-						return exitError{code: 1}
-					}
-				}
-				return describeError(err)
+				return err
 			}
 			var result struct {
 				Targets []string `json:"targets"`

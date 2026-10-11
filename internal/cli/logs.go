@@ -60,7 +60,7 @@ exact bytes the process wrote are kept next to it in <process>.raw.log.`,
 			}
 			live = narrowByProcess(live, processName)
 			if len(live) > 1 {
-				return ambiguousSessions(live)
+				return ambiguousError(ambiguousSessions(live))
 			}
 			if len(live) == 1 {
 				rec := live[0]
@@ -99,11 +99,11 @@ exact bytes the process wrote are kept next to it in <process>.raw.log.`,
 				return err
 			}
 			if len(runs) == 0 {
-				return fmt.Errorf("no running or previous stackstart session found for %s", cwd)
+				return noSessionError(fmt.Errorf("no running or previous stackstart session found for %s", cwd))
 			}
 			runs = narrowByProcess(runs, processName)
 			if len(runs) > 1 {
-				return ambiguousSessions(runs)
+				return ambiguousError(ambiguousSessions(runs))
 			}
 			rec := runs[0]
 			p, err := findProcess(rec, processName)

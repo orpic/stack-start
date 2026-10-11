@@ -3,6 +3,8 @@ roadmap: v0
 steps:
   - start: up p
   - wait_output: {id: up, contains: "all 5 processes ready", timeout: 10s}
+  - wait_output: {id: up, contains: "WORKER_STARTED", timeout: 5s}
+  - wait_output: {id: up, contains: "WEB_STARTED", timeout: 5s}
   - expect_output: {id: up, stream: stdout, in_order: ["DB_READY", "API_STARTED", "WEB_STARTED"]}
   - expect_output: {id: up, stream: stdout, in_order: ["CACHE_READY", "API_STARTED"]}
   - expect_output: {id: up, stream: stdout, in_order: ["API_STARTED", "WORKER_STARTED"]}

@@ -5,7 +5,7 @@ home: real
 requires: ["docker image inspect postgres:16", "psql --version"]
 ports: [pg]
 timeout: 180s
-notes: "Docker's proxy accepts TCP before postgres listens, and the image prints 'ready to accept connections' for a temporary init server first"
+notes: "Docker's proxy accepts TCP before postgres listens; the image prints 'ready to accept connections' for a temporary init server first; and the final 'listening on IPv4' line comes ~50 ms before queries are accepted, so the dependent query retries (found 2026-10-11 under parallel load)"
 steps:
   - start: up p
   - wait_output: {id: up, contains: "all 2 processes ready", timeout: 120s}

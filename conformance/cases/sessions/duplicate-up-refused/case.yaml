@@ -10,7 +10,7 @@ steps:
   - wait_output: {id: upq, contains: "1 process ready", timeout: 10s}
   - run: down
     expect:
-      exit: 1
+      exit: 4
       stderr_contains: ["more than one stackstart session matches this directory; pass --profile <name>:", "  --profile p  ${WORK}", "  --profile q  ${WORK}"]
   - run: down --profile q
     expect: {stdout_contains: "Stopped \"q\" in ${WORK}."}

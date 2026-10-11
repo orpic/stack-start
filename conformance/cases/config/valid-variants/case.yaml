@@ -4,4 +4,4 @@ steps:
   - run: validate p
     expect: {stdout_contains: "is valid."}
   - run: validate cycle3
-    expect: {exit: 1, stderr_contains: "dependency cycle detected: "}
+    expect: {exit: 2, stderr_contains: "dependency cycle detected: "}

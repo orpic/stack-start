@@ -46,7 +46,7 @@ For IEx (recompile), a Rails console, or answering a "continue? [y/N]" prompt.`,
 			}
 			resp, err := call(rec, control.Request{Op: "send", Process: args[0], Data: data, EchoMS: echo.Milliseconds()}, echo+10*time.Second, nil)
 			if err != nil {
-				return describeError(err)
+				return err
 			}
 			var result struct {
 				Output string `json:"output"`
@@ -115,7 +115,7 @@ Needs a terminal; agents use 'stackstart send'.`,
 					return nil
 				}
 				if _, err := call(rec, control.Request{Op: "send", Process: args[0], Data: string(chunk), EchoMS: 1}, 5*time.Second, nil); err != nil {
-					return describeError(err)
+					return err
 				}
 			}
 		},
@@ -168,7 +168,7 @@ Works on a running stack and on the last finished run.`,
 					return err
 				}
 				if len(runs) > 1 {
-					return ambiguousSessions(runs)
+					return ambiguousError(ambiguousSessions(runs))
 				}
 				evs, rerr := events.ReadFile(eventsPath(runs[0]))
 				if rerr != nil {
@@ -192,7 +192,7 @@ Works on a running stack and on the last finished run.`,
 			select {
 			case err := <-done:
 				if err != nil && err != control.ErrStackStopped {
-					return describeError(err)
+					return err
 				}
 			case <-ctx.Done():
 			}
@@ -297,15 +297,6 @@ wait for the rebuild that edit causes.`,
 			resp, err := call(rec, control.Request{Op: "wait", Process: process, For: forWhat, After: after, TimeoutMS: timeout.Milliseconds()},
 				timeout+5*time.Second, func(e events.Event) { last = e })
 			if err != nil {
-				if asJSON {
-					if ce, ok := err.(*control.Error); ok {
-						_ = printJSON(map[string]any{"ok": false, "error": ce})
-						return exitError{code: exitCodeFor(ce)}
-					}
-				}
-				if ce, ok := err.(*control.Error); ok {
-					return exitError{code: exitCodeFor(ce), msg: describeError(ce).Error()}
-				}
 				return err
 			}
 			var result struct {
@@ -334,15 +325,4 @@ wait for the rebuild that edit causes.`,
 	cmd.Flags().Duration("timeout", 5*time.Minute, "give up after this long")
 	cmd.Flags().Bool("json", false, "print the result as JSON")
 	return cmd
-}
-
-// exitCodeFor maps a control error to the exit code table in ROADMAP.md.
-func exitCodeFor(ce *control.Error) int {
-	switch ce.Code {
-	case control.CodeTimeout:
-		return 5
-	case control.CodeNotFound:
-		return 2
-	}
-	return 1
 }

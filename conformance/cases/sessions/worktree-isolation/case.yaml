@@ -9,10 +9,10 @@ steps:
   - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
   - run: down
     cwd: .worktrees/feature
-    expect: {exit: 1, stderr_contains: "no running stackstart session found for ${WORK}/.worktrees/feature"}
+    expect: {exit: 3, stderr_contains: "no running stackstart session found for ${WORK}/.worktrees/feature"}
   - run: logs app
     cwd: .worktrees/feature
-    expect: {exit: 1, stderr_contains: "no running or previous stackstart session found for ${WORK}/.worktrees/feature"}
+    expect: {exit: 3, stderr_contains: "no running or previous stackstart session found for ${WORK}/.worktrees/feature"}
   - alive: {id: up, for: 300ms}
   - start: logs app --follow
     id: follow

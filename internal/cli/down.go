@@ -42,10 +42,10 @@ Running down again while the stack is stopping just waits again.
 				return err
 			}
 			if len(records) == 0 {
-				return fmt.Errorf("no running stackstart session found for %s", cwd)
+				return noSessionError(fmt.Errorf("no running stackstart session found for %s", cwd))
 			}
 			if len(records) > 1 {
-				return ambiguousSessions(records)
+				return ambiguousError(ambiguousSessions(records))
 			}
 
 			rec := records[0]

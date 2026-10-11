@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -101,7 +102,16 @@ run 'stackstart start <process>'.`,
 				os.Exit(130)
 			}()
 
-			return orc.Run(ctx)
+			if err := orc.Run(ctx); err != nil {
+				if errors.Is(err, orchestrator.ErrForceKilled) {
+					return err
+				}
+				if strings.HasPrefix(err.Error(), "cannot start:") {
+					return err
+				}
+				return failedError(err)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolP("detach", "d", false, "run in the background; return once ready")
@@ -125,10 +135,10 @@ func resolveProfile(name string) (config.Profile, string, error) {
 	}
 	profile, filePath, err := config.Resolve(cwd, name, home, cfgFile)
 	if err != nil {
-		return config.Profile{}, "", err
+		return config.Profile{}, "", usageError(err)
 	}
 	if err := config.Validate(profile, name); err != nil {
-		return config.Profile{}, "", err
+		return config.Profile{}, "", usageError(err)
 	}
 	if profile.ResolvedProjectPath == "" {
 		return config.Profile{}, "", fmt.Errorf("profile %q has no resolved project path", name)
@@ -181,6 +191,12 @@ func upDetached(name string, profile config.Profile, keepGoing, noWait bool, tim
 	go func() { _ = c.Wait(); close(exited) }()
 
 	bootFailure := func() error {
+		// A stack that failed this fast: report the failure from its
+		// event log, like the foreground would.
+		if e := lastRunFailure(slug); e != nil {
+			printFailedEvent(*e)
+			return exitError{code: exitFailed}
+		}
 		data, _ := os.ReadFile(bootLog)
 		msg := strings.TrimSpace(string(data))
 		if msg == "" {
@@ -282,7 +298,7 @@ func upDetached(name string, profile config.Profile, keepGoing, noWait bool, tim
 	case <-exited:
 		return bootFailure()
 	case <-time.After(timeout):
-		return exitError{code: 5, msg: fmt.Sprintf("the stack is still starting after %s; it keeps running. Check it with 'stackstart status' or stop it with 'stackstart down'", timeout)}
+		return exitError{code: exitTimeout, msg: fmt.Sprintf("the stack is still starting after %s; it keeps running. Check it with 'stackstart status' or stop it with 'stackstart down'", timeout)}
 	}
 }
 
@@ -302,4 +318,27 @@ func printFailedEvent(e events.Event) {
 	}
 	fmt.Fprintf(&b, "Read it later with: stackstart logs %s\n", e.Process)
 	fmt.Fprint(os.Stderr, b.String())
+}
+
+// lastRunFailure returns the required-process failure recorded in the
+// newest run of a session, if any.
+func lastRunFailure(slug string) *events.Event {
+	entries, err := os.ReadDir(session.RunsDir(slug))
+	if err != nil || len(entries) == 0 {
+		return nil
+	}
+	newest := entries[len(entries)-1].Name()
+	evs, err := events.ReadFile(filepath.Join(session.RunsDir(slug), newest, "events.jsonl"))
+	if err != nil {
+		return nil
+	}
+	for _, e := range evs {
+		if e.Type == "process_failed" {
+			if req, _ := e.Fields["required"].(bool); req {
+				ev := e
+				return &ev
+			}
+		}
+	}
+	return nil
 }

@@ -9,7 +9,7 @@ steps:
   - run: send repl "y" --json
     expect: {stdout_json: {ok: true, process: repl}, stdout_contains: "= y"}
   - run: send ghost hi
-    expect: {exit: 1, stderr_contains: "process \"ghost\" not found"}
+    expect: {exit: 2, stderr_contains: "process \"ghost\" not found"}
   - run: logs repl --no-follow
     # The prompt has no newline, so it is flushed as its own line; the
     # terminal's echo of the typed text follows it.

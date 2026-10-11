@@ -40,11 +40,14 @@ Global flags on every command: `--config <path>` (use this file instead of the c
 | Code | When |
 | --- | --- |
 | 0 | Success. For `up`: every process finished (oneshot-only profile), or the stack was stopped by one SIGINT/SIGTERM/SIGHUP or by `down`. |
-| 1 | Any failure: invalid config, unknown profile, a process failed, no matching session, etc. |
-| 5 | `wait` timed out; `up -d` is still starting after `--timeout`. |
-| 130 | `up` received a second SIGINT/SIGTERM while stopping (or `down --force`), and killed everything. |
+| 1 | A process failed (readiness, crash, `fail_on`, a oneshot's exit), the profile is already running, or any other error not listed below. |
+| 2 | Invalid usage (unknown flag, wrong arguments) or invalid config (unparsable file, unknown profile, validation errors), or an unknown process name. |
+| 3 | No matching session (`down`, `logs`, `restart` … with nothing running here). |
+| 4 | More than one session matches; pass `--profile`. |
+| 5 | Timed out waiting (`wait`, `up -d --timeout`, `restart --timeout`). |
+| 130 | Killed on request: a second SIGINT/SIGTERM to `up`, or `down --force`. |
 
-The finer table in ROADMAP.md ("Exit codes") is planned, not contract yet.
+**Structured errors.** A command run with `--json` that fails prints `{"ok": false, "error": {"code": …, "message": …}}` on stdout (the message is also on stderr). Codes: `usage`, `invalid_config`, `no_session`, `ambiguous_session`, `timeout`, `not_found`, `conflict`, `failed`, `process_failed`, `shutting_down`, `error`. Errors from a running stack may also carry `process`, `hint`, `last_lines` and `log_file`.
 
 ## 3. Output streams
 

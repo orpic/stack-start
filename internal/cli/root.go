@@ -1,11 +1,8 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
-
-	"github.com/orpic/stack-start/internal/orchestrator"
 
 	"github.com/orpic/stack-start/internal/version"
 	"github.com/spf13/cobra"
@@ -56,19 +53,12 @@ runtime value propagation between processes.`,
 
 func Execute() {
 	root := NewRootCmd()
-	if err := root.Execute(); err != nil {
-		if errors.Is(err, orchestrator.ErrForceKilled) {
-			os.Exit(130)
-		}
-		var ee exitError
-		if errors.As(err, &ee) {
-			if msg := ee.Error(); msg != "" {
-				fmt.Fprintln(os.Stderr, msg)
-			}
-			os.Exit(ee.code)
-		}
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	root.PersistentPreRun = func(*cobra.Command, []string) { ran = true }
+	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		return codedError{exitUsage, "usage", fmt.Errorf("%w\nSee '%s --help'.", err, c.CommandPath())}
+	})
+	if cmd, err := root.ExecuteC(); err != nil {
+		os.Exit(report(cmd, err))
 	}
 }
 

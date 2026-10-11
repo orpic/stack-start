@@ -20,7 +20,7 @@ steps:
   - run: clean
     expect: {stdout_contains: "Removed 2 finished run(s)"}
   - run: logs app --profile p
-    expect: {exit: 1, stderr_contains: "no running or previous stackstart session found for ${WORK}"}
+    expect: {exit: 3, stderr_contains: "no running or previous stackstart session found for ${WORK}"}
   - run: clean --all --dry-run
     expect: {stdout_contains: "Would remove 1 finished run(s)", stdout_not_contains: "  live  "}
   - signal: {id: live, sig: TERM}
