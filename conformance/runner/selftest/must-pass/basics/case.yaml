@@ -25,5 +25,5 @@ steps:
   - run: logs app
     expect: {stdout_contains: "tick 1", stderr_contains: "==> app"}
   - run: "validate nope"
-    expect: {exit: 1, stderr_contains: 'no profile named "nope"'}
+    expect: {exit: 2, stderr_contains: 'no profile named "nope"'}
   - sleep: {duration: 100ms, reason: "exercise the sleep step"}
