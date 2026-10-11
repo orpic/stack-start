@@ -334,7 +334,15 @@ As of 2026-10-11, evening. Everything is on branch `agent-native-blackbox` (PR o
 | 4 | Port variables (`ports:` + `${port.x}`) so worktrees run side by side; port-clash warnings naming the holder. |
 | 5 | `describe --json`; `schema` (JSON Schema); `stackstart mcp` (MCP server whose tools run the CLI); `init --agents` (prints an AGENTS.md section). |
 
-Verification on 2026-10-11: the full suite on this Mac **132 passed, 0 failed, 0 skipped** (about 2.5 minutes, every test project and real tool including cloudflared and ngrok tunnels); the synthetic suite on Linux arm64 (Docker, non-root) **98 passed, 0 failed, 15 skipped** (tools absent). CI runs lint and the non-project suite on Ubuntu and macOS on every push; the full suite with every toolchain runs only when started by hand.
+Verification (2026-10-12):
+
+- This Mac: **139 passed, 0 failed, 0 skipped** (every test project and real tool, including real cloudflared and ngrok tunnels).
+- Linux arm64 (Docker, non-root): **103 passed, 0 failed, 16 skipped** (tools absent).
+- GitHub CI on the final commit: lint clean; conformance on Ubuntu **108 passed** and macOS **107 passed**, 0 failed; the manual full-toolchain job on Ubuntu (Elixir, Node, Bun, Python, Ruby, Postgres, Redis, Docker, every test project) **134 passed, 0 failed, 5 skipped** (direnv, cloudflared, ngrok not installed there; the Phoenix CSS-rebuild case is macOS-only).
+- Stress: two full suites in parallel, 6 of 6 runs clean.
+- CI: lint and the non-project suite run on every push (Ubuntu and macOS, `--timeout-scale 2`); the full-toolchain job runs only when started by hand.
+
+An independent code review of the Phase 1–5 code found 13 issues, all fixed (each observable one has a case that fails on the previous binary): the MCP `exec` tool dropped `--profile`; a timed-out MCP tool could hang the server; `exec` made Ctrl-C ignored in the command; `wait` without a process returned on the first ready process; a daemon stopped while starting was left running; `send` could block the controller; the oneshot cache ignored env values; the `/tmp` socket directory was not checked for ownership; `start` could run two instances during a retire; IPv6-only listeners looked free; a data race in `ForceKill`; `up -d` could show an older run's failure; a second Ctrl-C skipped the run's bookkeeping. CI on Linux found two more: long lines whose end arrived in the same read were not split at 64 KB, and a daemon's launcher exiting could hang up the daemon (launchers now run without a terminal).
 
 Phase 1 acceptance criteria, as cases on the real composite stack: `projects/composite/restart-phoenix` (Postgres, API, web and tunnel keep their PIDs and URL) and `projects/composite/bad-migration-keep-going` (fix the data, `start migrate`, Phoenix comes up).
 
