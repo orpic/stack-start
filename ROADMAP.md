@@ -319,33 +319,28 @@ Things learned by running real tools. Add to this whenever a test project teache
 
 ## Current state
 
-As of 2026-10-11, early morning. Everything is committed on branch `agent-native-blackbox` (from `main`); see `git log main..agent-native-blackbox`. Nothing is pushed.
+As of 2026-10-11, evening. Everything is on branch `agent-native-blackbox` (PR orpic/stack-start#2), pushed.
 
-Done (W1–W9):
+**Phases 0–5 are implemented and tested; Phase 6 is closed by owner decision** (no TUI; the licence is the owner's call). [`conformance/CONTRACT.md`](conformance/CONTRACT.md) documents every command and behavior; sections 11–15 cover Phases 1–5.
 
-- **W1** `conformance/CONTRACT.md` (the public contract) and `conformance/README.md` (case format, steps, running).
-- **W2** The runner, `conformance/runner/` (own Go module, imports nothing from stackstart): every step in the vocabulary plus `mark`/`since`, `save`, `plain`; variables; isolated state, home and ports; parallel and exclusive cases; leak check by process-tree sampling and token; JUnit. Self-tests in `conformance/runner/selftest/` (cases that must pass and cases that must fail: leak, untokened descendant, timeout, still running).
-- **W3/W3b** 100 cases: cli, config, readiness, lifecycle, output, logs, sessions, env, signals, realtools (13 real tools) and projects (6 projects + composite). `conformance/MIGRATION.md` maps every old Go test (76 e2e, 144 unit) to its case.
-- **W4** Run against v0.2.3 (76 of 83 then-existing cases fail; details in MIGRATION.md). `e2e/`, every `internal/**/*_test.go` and `internal/config/testdata/` deleted; testify dropped. CI (`.github/workflows/ci.yaml`): lint for both modules; conformance (runner self-test + all non-project cases) on Ubuntu and macOS on every push; the full suite with every toolchain nightly and on manual dispatch. The synthetic suite was also run on Linux (arm64, in Docker): 69 passed, 14 skipped (tools absent), 0 failed.
-- **W5–W7** Test projects: phoenix_app (+ `iex` profile, `/tunnel` route, breakable migration), django_app, fastapi_app, node_api, react_router_app, rails_app, and the composite stack. Full suite on this machine: **100 passed, 0 failed, 0 skipped in about 2 minutes**, no leftover processes.
-- **W8** README (testing, `down --force`), TECH.md §14/§15.1 and layout, `test-projects/README.md`, AGENTS.md (local, gitignored), this file.
+| Phase | What an agent (or a person) can now do |
+| --- | --- |
+| 0 | See what processes really do: long lines, prompts, screen clears, spinners, logs that survive the run, `fail_on`, `capture:` checks, clean teardown of every descendant. |
+| 1 | `up -d`; `start`/`stop`/`restart <process>` (dependents follow, nothing else moves); retries with backoff; `--keep-going`; `send`/`attach`; `status --json`; `logs --lines/--no-follow`; a control socket and an `events.jsonl` per run. |
+| 2 | Stable exit codes and `--json` errors; `logs --since/--grep/--run`; `events --after`; `wait --for ready/exit/rebuilt/event:<type>`; rebuild signals with presets for Phoenix, Vite, tsx, Django, uvicorn, Rails, tailwind, esbuild, Next, webpack, tsc, nodemon, node --watch; health checks and the `degraded` state. |
+| 3 | `exec <p> -- <cmd>` and `env <p> --explain` (the process's exact environment, layer by layer); `up --only/--skip/--set`; oneshot `inputs` caching; `http`/`exec`/`file` readiness checks; `kind: daemon` (pidfile, log_file, stop_cmd). |
+| 4 | Port variables (`ports:` + `${port.x}`) so worktrees run side by side; port-clash warnings naming the holder. |
+| 5 | `describe --json`; `schema` (JSON Schema); `stackstart mcp` (MCP server whose tools run the CLI); `init --agents` (prints an AGENTS.md section). |
 
-Bugs found and fixed by the new suite (each has a case):
+Verification on 2026-10-11: the full suite on this Mac **132 passed, 0 failed, 0 skipped** (about 2.5 minutes, every test project and real tool including cloudflared and ngrok tunnels); the synthetic suite on Linux arm64 (Docker, non-root) **98 passed, 0 failed, 15 skipped** (tools absent). CI runs lint and the non-project suite on Ubuntu and macOS on every push, and everything nightly.
 
-1. A process without dependencies could be **started twice** when another became ready first; the first copy leaked past `down` (lifecycle/each-process-starts-once).
-2. With **direnv** installed, the `.envrc` layer re-applied the whole shell environment, undoing the pager defaults (env/layering). A blocked `.envrc` now shows direnv's own message.
-3. A second **`down`** force-killed the stack while the hint said it would wait; `down --force` added (signals/down-no-wait).
-4. An unparsable **`stackstart.yaml`** was reported as "no profile named …" (config/parse-error-is-reported).
-5. Validation rejected the documented **`$${VAR}`** escape (env/dollar-escapes).
-6. An invalid **`.env`** was silently ignored (env/errors).
-7. **npm's spinner** left a stray `\` line after every npm command (output/spinner-erased-with-cursor).
-8. Exit causes said "process exited: process exited: …" twice over (lifecycle/exit-*).
+Phase 1 acceptance criteria, as cases on the real composite stack: `projects/composite/restart-phoenix` (Postgres, API, web and tunnel keep their PIDs and URL) and `projects/composite/bad-migration-keep-going` (fix the data, `start migrate`, Phoenix comes up).
 
-Incident during the night: building v0.2.3, I ran `git stash` with nothing to stash, and the following `git stash pop` applied the owner's old `stash@{0}` ("WIP on main: ed02360 add agentic guide") onto the branch with conflicts. The working tree was restored with `git checkout HEAD -- <files>` before anything was committed; **`stash@{0}` is still there, unchanged**. Old builds now use `git worktree` only.
+Bugs found while building Phases 1–5 (each has a case): a socket-initiated stop made a later `down --force` count as the first signal; `wait --for event:` without `--after` matched old events; a stack that failed within milliseconds was reported without its FAILED block by `up -d`; `--only/--skip` dropped the profile's `ports`; the `.env` files of two cases were gitignored and missing in CI; Postgres in Docker logs "listening" ~50 ms before it accepts queries (case now retries; `exec: pg_isready` is the robust gate).
 
-Not done:
+Not done / next:
 
-- **W9** done: [`docs/phase1-design.md`](docs/phase1-design.md) (process model, control socket and its path-length workaround, protocol, event log schema, states and restarts, `status --json` schema, testing plan) with seven open questions (Q1–Q7). **Stopped here for the owner's review**, as the work order says; Phase 1 is not implemented.
-- `status --json` (1.7) is still needed for the one dropped old test (real PIDs in the session record).
-- Prefix colors are not covered (the runner has no terminal).
-- CI has not run on GitHub yet; the first push will tell whether the Ubuntu/macOS runners behave like this machine and the Linux container.
+- A TUI (skipped by the owner).
+- Windows (out of scope).
+- Prefix colors are not covered by tests (the runner has no terminal).
+- The nightly `full` CI job (all toolchains) has not run on GitHub yet; trigger it with "Run workflow" on the ci workflow to check it before merging.
