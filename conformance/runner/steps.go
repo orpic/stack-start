@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,7 +23,7 @@ var stepKinds = []string{
 
 // stepFields lists the fields each step accepts, so typos fail loudly.
 var stepFields = map[string][]string{
-	"run":           {"id", "cwd", "env", "timeout", "expect"},
+	"run":           {"id", "cwd", "env", "timeout", "expect", "save_json"},
 	"start":         {"id", "cwd", "env"},
 	"wait_output":   {},
 	"expect_output": {},
@@ -297,7 +298,23 @@ func (r *caseRun) stepRun(ctx context.Context, p params) error {
 		return err
 	}
 	expect, _ := p["expect"].(map[string]any)
-	return checkExpect(expect, c)
+	if err := checkExpect(expect, c); err != nil {
+		return err
+	}
+	if saves, ok := p["save_json"].(map[string]any); ok {
+		var doc any
+		if err := json.Unmarshal([]byte(c.out.get("stdout")), &doc); err != nil {
+			return fmt.Errorf("save_json: output is not JSON: %v", err)
+		}
+		for name, path := range saves {
+			v, err := jsonLookup(doc, fmt.Sprint(path))
+			if err != nil {
+				return fmt.Errorf("save_json %s: %v", name, err)
+			}
+			r.saved[name] = v
+		}
+	}
+	return nil
 }
 
 func (r *caseRun) stepStart(p params) error {

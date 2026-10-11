@@ -1,0 +1,15 @@
+name: a process with a retry policy is retried with backoff until it succeeds
+roadmap: "1.3, 1.4"
+steps:
+  - run: up p -d
+    timeout: 30s
+    expect: {stdout_contains: "Started \"p\""}
+  - run: status --json
+    expect:
+      stdout_json: {"sessions[0].processes[name=flaky].state": ready, "sessions[0].processes[name=flaky].restarts": 2, "sessions[0].processes[name=flaky].attempt": 0}
+  - run: events --type process_backoff --json
+    expect: {stdout_count: {"\"type\":\"process_backoff\"": 2}, stdout_contains: ["\"attempt\":1", "\"attempt\":2"]}
+  - run: logs flaky --no-follow
+    expect: {stdout_equals: "attempt 1\nattempt 2\nattempt 3\nup\n"}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

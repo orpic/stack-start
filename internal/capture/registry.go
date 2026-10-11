@@ -50,3 +50,10 @@ func (r *Registry) Snapshot() map[string]map[string]string {
 	}
 	return result
 }
+
+// Clear forgets every value captured from a process, before it restarts.
+func (r *Registry) Clear(process string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.values, process)
+}

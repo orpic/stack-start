@@ -6,6 +6,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/orpic/stack-start/internal/control"
 	"github.com/orpic/stack-start/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -49,6 +50,11 @@ Running down again while the stack is stopping just waits again.
 
 			rec := records[0]
 			pid := rec.StackstartPID
+			if rec.ControlSocket != "" && !rec.Stopping {
+				if _, err := control.Call(rec.ControlSocket, control.Request{Op: "shutdown", Force: force}, 5*time.Second, nil); err == nil {
+					return waitDown(rec, noWait, force, timeout)
+				}
+			}
 			// A stack that is already stopping must not get another SIGTERM
 			// unless the caller wants it killed: stackstart treats a second
 			// signal as "kill everything now".
@@ -66,27 +72,7 @@ Running down again while the stack is stopping just waits again.
 				}
 			}
 
-			if noWait {
-				fmt.Printf("Stopping %q in %s (PID %d).\n", rec.Profile, rec.ProjectPath, pid)
-				return nil
-			}
-
-			fmt.Fprintf(os.Stderr, "Stopping %q in %s...\n", rec.Profile, rec.ProjectPath)
-			deadline := time.Now().Add(timeout)
-			for session.IsAlive(pid) {
-				if time.Now().After(deadline) {
-					return fmt.Errorf("stack %q is still stopping after %s (stackstart PID %d); "+
-						"run 'stackstart down' again to keep waiting, or 'stackstart down --force' to kill it now",
-						rec.Profile, timeout, pid)
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-			verb := "Stopped"
-			if force {
-				verb = "Killed"
-			}
-			fmt.Printf("%s %q in %s. Logs: %s\n", verb, rec.Profile, rec.ProjectPath, rec.LogDir)
-			return nil
+			return waitDown(rec, noWait, force, timeout)
 		},
 	}
 	cmd.Flags().String("profile", "", "profile name (required when multiple sessions match)")
@@ -94,6 +80,32 @@ Running down again while the stack is stopping just waits again.
 	cmd.Flags().Bool("force", false, "kill every process now instead of waiting for grace periods")
 	cmd.Flags().Duration("timeout", 2*time.Minute, "how long to wait for the stack to stop")
 	return cmd
+}
+
+// waitDown reports a stop request and, unless noWait, waits for the stack
+// to be gone.
+func waitDown(rec session.Record, noWait, force bool, timeout time.Duration) error {
+	pid := rec.StackstartPID
+	if noWait {
+		fmt.Printf("Stopping %q in %s (PID %d).\n", rec.Profile, rec.ProjectPath, pid)
+		return nil
+	}
+	fmt.Fprintf(os.Stderr, "Stopping %q in %s...\n", rec.Profile, rec.ProjectPath)
+	deadline := time.Now().Add(timeout)
+	for session.IsAlive(pid) {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("stack %q is still stopping after %s (stackstart PID %d); "+
+				"run 'stackstart down' again to keep waiting, or 'stackstart down --force' to kill it now",
+				rec.Profile, timeout, pid)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	verb := "Stopped"
+	if force {
+		verb = "Killed"
+	}
+	fmt.Printf("%s %q in %s. Logs: %s\n", verb, rec.Profile, rec.ProjectPath, rec.LogDir)
+	return nil
 }
 
 // waitUntilStopping waits until the session record says the stack has

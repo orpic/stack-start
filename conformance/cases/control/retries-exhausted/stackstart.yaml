@@ -1,0 +1,9 @@
+profiles:
+  p:
+    processes:
+      broken:
+        cmd: echo trying; exit 3
+        restart: always
+        retries: 2
+        backoff: 100ms
+        readiness: {timeout: 5s, checks: [{log: never}]}

@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
+
+	"github.com/orpic/stack-start/internal/orchestrator"
 
 	"github.com/orpic/stack-start/internal/version"
 	"github.com/spf13/cobra"
@@ -39,6 +42,13 @@ runtime value propagation between processes.`,
 		newLogsCmd(),
 		newStatusCmd(),
 		newCleanCmd(),
+		newStartCmd(),
+		newStopCmd(),
+		newRestartCmd(),
+		newSendCmd(),
+		newAttachCmd(),
+		newEventsCmd(),
+		newWaitCmd(),
 	)
 
 	return root
@@ -47,6 +57,16 @@ runtime value propagation between processes.`,
 func Execute() {
 	root := NewRootCmd()
 	if err := root.Execute(); err != nil {
+		if errors.Is(err, orchestrator.ErrForceKilled) {
+			os.Exit(130)
+		}
+		var ee exitError
+		if errors.As(err, &ee) {
+			if msg := ee.Error(); msg != "" {
+				fmt.Fprintln(os.Stderr, msg)
+			}
+			os.Exit(ee.code)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -62,3 +82,12 @@ func newVersionCmd() *cobra.Command {
 		},
 	}
 }
+
+// exitError makes a command exit with a specific code. An empty message
+// prints nothing (the command already reported the problem).
+type exitError struct {
+	code int
+	msg  string
+}
+
+func (e exitError) Error() string { return e.msg }

@@ -200,7 +200,7 @@ This reverses two v1 non-goals in the PRD: "not a daemon" and "no auto-restart".
 
 Phase 0 is tested by the conformance suite; [`conformance/MIGRATION.md`](conformance/MIGRATION.md) maps each fix to its cases.
 
-## Phase 1 — control plane: operate one process at a time
+## Phase 1 — control plane: operate one process at a time (done 2026-10-11)
 
 Changed 2026-10-10: `status --json` and non-following `logs` moved here from Phase 2, because agents need them first and the black-box suite needs them to observe state without reading internal files.
 

@@ -1,0 +1,27 @@
+name: stop stops a process and its dependents; start brings them back; stopped stays stopped
+roadmap: "1.2, 1.3"
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: stop db
+    expect: {stdout_equals: "Stopped api, db.\n"}
+  - process: {matches: "^perl -e sleep 300 (db|api)-${TOKEN}$", absent: true, timeout: 3s}
+  - process: {matches: "^perl -e sleep 300 other-${TOKEN}$", count: 1, timeout: 1s}
+  - run: status --json
+    expect:
+      stdout_json: {"sessions[0].processes[name=db].state": stopped, "sessions[0].processes[name=api].state": pending, "sessions[0].processes[name=other].state": ready}
+  - run: status
+    expect: {stdout_contains: "api(pending), db(stopped), other(ready)"}
+  - run: start api --no-wait
+  - sleep: {duration: 300ms, reason: "api must stay pending while db is stopped"}
+  - run: status --json
+    expect: {stdout_json: {"sessions[0].processes[name=api].state": pending}}
+  - run: start db
+    expect: {stdout_contains: "Started db: ready in"}
+  - run: wait api --timeout 10s
+  - run: status --json
+    expect: {stdout_json: {"sessions[0].processes[name=db].state": ready, "sessions[0].processes[name=api].state": ready}}
+  - run: start db
+    expect: {exit: 1, stderr_contains: ["process db is already ready", "use 'stackstart restart db' to restart it"]}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

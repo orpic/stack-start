@@ -203,17 +203,35 @@ Tips for generating stackstart configs:
 ## Commands
 
 ```text
-stackstart up <profile>       Start the named profile
-stackstart down                Stop the running stack and wait until it has stopped (from any shell; --force kills now)
-stackstart status              Show running sessions and process states
-stackstart logs <process>      Show a process's log: live, or the last run's after it stopped
-stackstart clean               Delete the logs of finished runs (--all, --dry-run)
-stackstart list                List profiles available from current directory
-stackstart validate <profile>  Check config without running anything
-stackstart init                Scaffold a starter stackstart.yaml
+stackstart up <profile>          Start a profile in the foreground (Ctrl-C stops it)
+stackstart up <profile> -d       Start it in the background; returns once ready (--keep-going, --no-wait)
+stackstart status [--json]       Running stacks: every process's state, PID, ports, captured values
+stackstart logs <process>        A process's log (follows on a terminal; --lines N, --no-follow)
+stackstart restart <process>     Restart one process (and what depends on it); nothing else moves
+stackstart stop|start <process>  Stop or start one process in the running stack
+stackstart wait [process]        Block until ready, exited, rebuilt or an event happened (--timeout)
+stackstart events                What happened: starts, readiness, captures, restarts, exits (--after N)
+stackstart send <process> <text> Type into a REPL or prompt running in the stack, print its answer
+stackstart attach <process>      Use a running REPL interactively (Ctrl-] detaches)
+stackstart down [--force]        Stop the stack and wait until it has stopped (from any shell)
+stackstart clean                 Delete the logs of finished runs (--all, --dry-run)
+stackstart list                  List profiles available from the current directory
+stackstart validate <profile>    Check config without running anything
+stackstart init                  Scaffold a starter stackstart.yaml
 ```
 
-See [ROADMAP.md](ROADMAP.md) for what's next: per-process restart, `up -d`, `wait`, `--json` everywhere, and `exec`.
+An agent can run a whole stack without holding a terminal:
+
+```bash
+stackstart up dev -d                          # exit 0 once everything is ready, 1 with the failure
+stackstart status --json                      # PIDs, states, captured URLs, ports, last exits
+stackstart restart phoenix                    # only phoenix (and what depends on it) restarts
+stackstart logs phoenix --lines 50            # prints and exits when not on a terminal
+stackstart wait api --for event:process_ready --after 42 --timeout 60s
+stackstart down
+```
+
+See [ROADMAP.md](ROADMAP.md) for what's next.
 
 ## Testing
 

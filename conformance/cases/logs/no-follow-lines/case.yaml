@@ -1,0 +1,21 @@
+name: logs prints and exits when not on a terminal; --lines limits it; --follow keeps following
+roadmap: "1.8"
+notes: "owner decision Q5: follow by default only on a terminal"
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: logs app
+    timeout: 5s
+    expect: {stdout_equals: "line 1\nline 2\nline 3\nline 4\nline 5\n"}
+  - run: logs app --lines 2
+    expect: {stdout_equals: "line 4\nline 5\n"}
+  - start: logs app --follow --lines 1
+    id: follow
+  - wait_output: {id: follow, stream: stdout, contains: "line 5\n", timeout: 5s}
+  - alive: {id: follow, for: 300ms}
+  - signal: {id: follow, sig: INT}
+  - wait_exit: {id: follow, exit: 0, timeout: 5s}
+  - expect_output: {id: follow, stream: stdout, equals: "line 5\n"}
+  - run: down
+  - run: logs app --lines 1
+    expect: {stdout_equals: "line 5\n"}

@@ -1,0 +1,13 @@
+name: up -d of a failing stack exits 1 with the failure report and leaves nothing running
+roadmap: "1.1"
+steps:
+  - run: up p -d
+    timeout: 20s
+    expect:
+      exit: 1
+      stderr_contains: ["--- FAILED: app ---", "Cause: readiness timeout after 1s; still waiting for log /never/", "Last output:\n  booting\n", "Read it later with: stackstart logs app"]
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}
+  - run: status
+    expect: {stdout_equals: "No running stackstart sessions.\n"}
+  - run: logs app
+    expect: {stdout_equals: "booting\n"}

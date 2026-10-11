@@ -1,26 +1,32 @@
+// Package orchestrator runs a profile: it starts processes in dependency
+// order, reacts to their readiness, failures and exits, and accepts commands
+// (start, stop, restart, send, status, ...) on a control socket while the
+// stack runs. One goroutine (the loop) owns all process state; everything
+// else talks to it through channels.
 package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fatih/color"
 
 	captureLib "github.com/orpic/stack-start/internal/capture"
 	"github.com/orpic/stack-start/internal/config"
-	"github.com/orpic/stack-start/internal/env"
-	"github.com/orpic/stack-start/internal/interpolate"
-	"github.com/orpic/stack-start/internal/logmux"
+	"github.com/orpic/stack-start/internal/control"
+	"github.com/orpic/stack-start/internal/events"
 	"github.com/orpic/stack-start/internal/session"
 	"github.com/orpic/stack-start/internal/supervisor"
-	tmplPkg "github.com/orpic/stack-start/internal/template"
 	"github.com/orpic/stack-start/internal/version"
 )
 
@@ -32,35 +38,131 @@ type Config struct {
 	ConfigFile  string
 	LogFormat   string
 	Quiet       bool
+	// KeepGoing keeps the stack up when a required process fails: its
+	// dependents are blocked and everything else keeps running.
+	KeepGoing bool
+	// Detached marks a stack started with up -d.
+	Detached bool
+	// Console receives process output and Notices stackstart's own lines.
+	// They default to stdout and stderr. OpenConsole, if set, is called once
+	// the run directory exists and replaces both (detached stacks write
+	// their console to a file in the run directory).
+	Console     io.Writer
+	Notices     io.Writer
+	OpenConsole func(runDir string) (io.Writer, string, error)
+}
+
+// ErrForceKilled is returned when the stack was killed on request (a second
+// Ctrl-C or down --force); the CLI exits 130.
+var ErrForceKilled = errors.New("killed")
+
+// Process states.
+const (
+	sPending  = "pending"
+	sBlocked  = "blocked"
+	sStarting = "starting"
+	sReady    = "ready"
+	sBackoff  = "backoff"
+	sStopping = "stopping"
+	sStopped  = "stopped"
+	sFailed   = "failed"
+	sExited   = "exited"
+)
+
+// proc is the loop's view of one process.
+type proc struct {
+	name string
+	cfg  config.Process
+	sup  *supervisor.Supervisor
+	// gen increases every time the process is started or its instance is
+	// retired, so events from an old instance are recognised and ignored.
+	gen       int
+	state     string
+	attempt   int // consecutive failed attempts (reset when ready)
+	restarts  int
+	pid       int
+	startedAt time.Time
+	readyAt   time.Time
+	lastExit  *control.ExitStatus
+	cause     string
+	lastLines []string
+	blockedBy string
+	// expectStop marks a stop we asked for, so its exit is not a crash.
+	expectStop bool
+	// recovering is set while the retry policy brings the process back, so
+	// dependents are restarted if a captured value they use changed.
+	recovering bool
+	// inputs are the captured values the process was started with.
+	inputs     map[string]string
+	retryTimer *time.Timer
+
+	logPath string
+	rawPath string
+	logFile *os.File
+	rawFile *os.File
 }
 
 // Orchestrator manages the lifecycle of all processes in a profile.
 type Orchestrator struct {
 	cfg      Config
 	registry *captureLib.Registry
-	events   chan supervisor.Event
 	logger   *slog.Logger
 	lock     *session.Lock
 	slug     string
 	runDir   string
 	rec      session.Record
+	ev       *events.Log
+	console  io.Writer
+	notices  io.Writer
+	padTo    int
+	startGit *control.GitInfo
 
 	consoleMu sync.Mutex
 
-	supMu       sync.Mutex
-	supervisors map[string]*supervisor.Supervisor
+	// procMu guards the procs map's supervisors for ForceKill, which runs
+	// outside the loop.
+	procMu sync.Mutex
+	procs  map[string]*proc
+	order  []string // sorted names
+
+	supEvents chan supervisor.Event
+	cmds      chan *command
+	retries   chan retryTick
+	stopDone  chan int
+	plans     map[int]func()
+	nextPlan  int
+
+	listener   net.Listener
+	socketPath string
+	done       chan struct{} // closed when the run is over
+
+	stopping atomic.Bool // set once the stack has started to shut down
+
+	announced bool
+	allReady  bool
+	finished  bool
+	result    error
+}
+
+type retryTick struct {
+	name string
+	gen  int
 }
 
 func New(cfg Config) *Orchestrator {
 	return &Orchestrator{
-		cfg:         cfg,
-		supervisors: make(map[string]*supervisor.Supervisor),
-		registry:    captureLib.NewRegistry(),
-		events:      make(chan supervisor.Event, 64),
+		cfg:       cfg,
+		registry:  captureLib.NewRegistry(),
+		procs:     make(map[string]*proc),
+		supEvents: make(chan supervisor.Event, 256),
+		cmds:      make(chan *command),
+		retries:   make(chan retryTick, 16),
+		stopDone:  make(chan int, 16),
+		plans:     make(map[int]func()),
 	}
 }
 
-// Run is the main orchestration loop.
+// Run starts the stack and returns when it has stopped.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	o.slug = session.Slug(o.cfg.ProjectPath, o.cfg.ProfileName)
 
@@ -81,14 +183,41 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	logClose := o.setupLogger()
 	defer logClose()
 
-	padTo := 0
-	for name := range o.cfg.Profile.Processes {
-		if len(name) > padTo {
-			padTo = len(name)
+	o.console, o.notices = o.cfg.Console, o.cfg.Notices
+	if o.console == nil {
+		o.console = os.Stdout
+	}
+	if o.notices == nil {
+		o.notices = os.Stderr
+	}
+	consoleLog := ""
+	if o.cfg.OpenConsole != nil {
+		w, path, err := o.cfg.OpenConsole(runDir)
+		if err != nil {
+			return err
 		}
+		o.console, o.notices, consoleLog = w, w, path
 	}
 
-	depGraph := buildDepGraph(o.cfg.Profile.Processes)
+	evPath := filepath.Join(runDir, "events.jsonl")
+	o.ev, err = events.Open(evPath)
+	if err != nil {
+		return err
+	}
+	defer o.ev.Close()
+
+	if err := o.listen(); err != nil {
+		return err
+	}
+	defer o.closeListener()
+
+	o.order = sortedNames(o.cfg.Profile.Processes)
+	for _, name := range o.order {
+		if len(name) > o.padTo {
+			o.padTo = len(name)
+		}
+	}
+	o.startGit = gitInfo(o.cfg.ProjectPath, "")
 
 	o.rec = session.Record{
 		Slug:              o.slug,
@@ -101,327 +230,87 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		StartedAt:         time.Now(),
 		Outcome:           session.OutcomeRunning,
 		LogDir:            runDir,
+		ControlSocket:     o.socketPath,
+		Detached:          o.cfg.Detached,
+		ConsoleLog:        consoleLog,
+		EventsFile:        evPath,
 	}
 
-	o.supMu.Lock()
-	for _, name := range sortedNames(o.cfg.Profile.Processes) {
-		proc := o.cfg.Profile.Processes[name]
-		logPath := filepath.Join(runDir, name+".log")
-		rawPath := filepath.Join(runDir, name+".raw.log")
-
-		logFile, err := os.Create(logPath)
-		if err != nil {
-			o.supMu.Unlock()
+	for _, name := range o.order {
+		p := &proc{name: name, cfg: o.cfg.Profile.Processes[name], state: sPending}
+		p.logPath = filepath.Join(runDir, name+".log")
+		p.rawPath = filepath.Join(runDir, name+".raw.log")
+		if p.logFile, err = os.OpenFile(p.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
 			return fmt.Errorf("creating log file for %s: %w", name, err)
 		}
-		defer func() { _ = logFile.Close() }()
-		rawFile, err := os.Create(rawPath)
-		if err != nil {
-			o.supMu.Unlock()
+		if p.rawFile, err = os.OpenFile(p.rawPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
 			return fmt.Errorf("creating raw log file for %s: %w", name, err)
 		}
-		defer func() { _ = rawFile.Close() }()
-
-		var captures []*captureLib.Capture
-		for _, capCfg := range proc.Captures {
-			c, err := captureLib.New(capCfg.Name, capCfg.Log, capCfg.IsRequired())
-			if err != nil {
-				o.supMu.Unlock()
-				return fmt.Errorf("process %s: invalid capture regex: %w", name, err)
-			}
-			captures = append(captures, c)
-		}
-
-		o.supervisors[name] = &supervisor.Supervisor{
-			Name:        name,
-			Proc:        proc,
-			ProjectPath: o.cfg.ProjectPath,
-			Mux:         logmux.New(name, padTo, logFile, os.Stdout, &o.consoleMu),
-			Raw:         rawFile,
-			Captures:    captures,
-			Registry:    o.registry,
-			Events:      o.events,
-		}
+		o.procs[name] = p
 		o.rec.Processes = append(o.rec.Processes, session.ProcessRecord{
 			Name:      name,
-			LogFile:   logPath,
-			RawLog:    rawPath,
-			StateFile: filepath.Join(runDir, name+".state"),
+			LogFile:   p.logPath,
+			RawLog:    p.rawPath,
+			StateFile: o.stateFile(name),
 		})
+		_ = session.WriteProcessState(o.stateFile(name), sPending, 0)
 	}
-	o.supMu.Unlock()
-
-	states := make(map[string]supervisor.State, len(o.cfg.Profile.Processes))
-	for name := range o.cfg.Profile.Processes {
-		states[name] = supervisor.StatePending
-		_ = session.WriteProcessState(o.stateFile(name), string(supervisor.StatePending), 0)
-	}
+	defer func() {
+		for _, p := range o.procs {
+			_ = p.logFile.Close()
+			_ = p.rawFile.Close()
+		}
+	}()
 	o.writeRecord()
 	defer session.RemoveRecord(o.slug)
 
-	for _, name := range sortedNames(o.cfg.Profile.Processes) {
-		if len(depGraph[name]) == 0 {
-			// Mark it now, not when its "starting" event arrives: another
-			// process becoming ready in between must not start it again.
-			states[name] = supervisor.StateStarting
-			if err := o.startProcess(name); err != nil {
-				return o.abort(name, err, states)
-			}
-		}
-	}
+	o.ev.Emit("run_started", "", map[string]any{
+		"profile": o.cfg.ProfileName, "project": o.cfg.ProjectPath, "run_id": runID,
+		"stackstart_version": version.Version, "detached": o.cfg.Detached, "keep_going": o.cfg.KeepGoing,
+	})
+	go o.serve()
 
-	for {
+	o.schedule()
+	o.check()
+
+	for !o.finished {
 		select {
 		case <-ctx.Done():
-			o.logger.Info("shutting down (context cancelled)")
-			o.markStopping()
-			o.shutdownAll()
-			o.finish(session.OutcomeStopped, "", nil, states)
-			return nil
-
-		case evt := <-o.events:
-			prevState := states[evt.Process]
-			states[evt.Process] = evt.State
-			pid := o.supervisor(evt.Process).PID()
-			_ = session.WriteProcessState(o.stateFile(evt.Process), string(evt.State), pid)
-			if evt.State == supervisor.StateStarting {
-				o.setPID(evt.Process, pid)
-			}
-
-			switch evt.State {
-			case supervisor.StateReady:
-				o.logger.Info("process ready", "process", evt.Process)
-				for _, depName := range sortedNames(o.cfg.Profile.Processes) {
-					if states[depName] != supervisor.StatePending {
-						continue
-					}
-					allReady := true
-					for _, dep := range depGraph[depName] {
-						if states[dep] != supervisor.StateReady {
-							allReady = false
-							break
-						}
-					}
-					if allReady {
-						states[depName] = supervisor.StateStarting
-						if err := o.startProcess(depName); err != nil {
-							return o.abort(depName, err, states)
-						}
-					}
-				}
-
-				if allSettled(states) {
-					o.logger.Info("all processes ready")
-					what := fmt.Sprintf("all %d processes ready", len(states))
-					if len(states) == 1 {
-						what = "1 process ready"
-					}
-					o.notice(color.New(color.FgGreen), fmt.Sprintf("%s · logs: %s", what, o.runDir))
-				}
-				if o.allFinished(states) {
-					o.logger.Info("all processes have finished")
-					o.notice(color.New(color.FgGreen), "all processes finished")
-					o.finish(session.OutcomeStopped, "", nil, states)
-					return nil
-				}
-
-			case supervisor.StateFailed:
-				proc := o.cfg.Profile.Processes[evt.Process]
-				if proc.IsRequired() {
-					return o.abort(evt.Process, evt.Err, states)
-				}
-				o.logger.Warn("non-required process failed", "process", evt.Process, "error", evt.Err)
-				o.notice(color.New(color.FgYellow), fmt.Sprintf("%s failed (not required, continuing): %s",
-					evt.Process, evt.Err))
-
-			case supervisor.StateExited:
-				proc := o.cfg.Profile.Processes[evt.Process]
-				wasReady := prevState == supervisor.StateReady
-				if proc.OnExitPolicy() == "fail" && proc.IsRequired() {
-					what := fmt.Sprintf("process %s exited before becoming ready", evt.Process)
-					if wasReady {
-						what = fmt.Sprintf("process %s exited unexpectedly post-ready", evt.Process)
-					}
-					errMsg := fmt.Errorf("%s (exit 0)", what)
-					if evt.Err != nil {
-						errMsg = fmt.Errorf("%s: %w", what, evt.Err)
-					}
-					return o.abort(evt.Process, errMsg, states)
-				}
-				o.logger.Info("process exited (ignored)", "process", evt.Process)
-
-				if o.allFinished(states) {
-					o.logger.Info("all processes have finished")
-					o.notice(color.New(color.FgGreen), "all processes finished")
-					o.finish(session.OutcomeStopped, "", nil, states)
-					return nil
-				}
+			o.gracefulShutdown("signal")
+		case e := <-o.supEvents:
+			o.handleSupEvent(e)
+		case c := <-o.cmds:
+			o.handleCommand(c)
+		case t := <-o.retries:
+			o.handleRetry(t)
+		case id := <-o.stopDone:
+			if then := o.plans[id]; then != nil {
+				delete(o.plans, id)
+				then()
 			}
 		}
-	}
-}
-
-// allFinished reports whether nothing is left running or waiting to run: every
-// process has exited, failed, or is a oneshot that completed. A profile made
-// only of oneshots (migrate, seed, build) then ends instead of waiting forever.
-func (o *Orchestrator) allFinished(states map[string]supervisor.State) bool {
-	for name, s := range states {
-		switch {
-		case s == supervisor.StateExited, s == supervisor.StateFailed:
-		case s == supervisor.StateReady && o.cfg.Profile.Processes[name].IsOneshot():
-		default:
-			return false
+		if !o.finished {
+			o.check()
 		}
 	}
-	return true
+	return o.result
 }
 
-func allSettled(states map[string]supervisor.State) bool {
-	for _, s := range states {
-		if s != supervisor.StateReady && s != supervisor.StateExited {
-			return false
-		}
-	}
-	return true
-}
-
-func (o *Orchestrator) supervisor(name string) *supervisor.Supervisor {
-	o.supMu.Lock()
-	defer o.supMu.Unlock()
-	return o.supervisors[name]
-}
-
-func (o *Orchestrator) stateFile(name string) string {
-	return filepath.Join(o.runDir, name+".state")
-}
-
-func (o *Orchestrator) setPID(name string, pid int) {
-	for i := range o.rec.Processes {
-		if o.rec.Processes[i].Name == name {
-			o.rec.Processes[i].PID = pid
-		}
-	}
-	o.writeRecord()
-}
-
-// markStopping records that the stack is shutting down.
-func (o *Orchestrator) markStopping() {
-	o.rec.Stopping = true
-	o.writeRecord()
-}
-
-// writeRecord writes the live session record and the run's run.json.
-func (o *Orchestrator) writeRecord() {
-	if err := session.WriteRecord(o.rec); err != nil {
-		o.logger.Error("failed to write session record", "error", err)
-	}
-	if err := session.WriteRunInfo(o.rec); err != nil {
-		o.logger.Error("failed to write run.json", "error", err)
-	}
-}
-
-// finish records how the run ended in run.json, which outlives the session.
-func (o *Orchestrator) finish(outcome, failedProcess string, cause error, states map[string]supervisor.State) {
-	now := time.Now()
-	o.rec.EndedAt = &now
-	o.rec.Outcome = outcome
-	o.rec.FailedProcess = failedProcess
-	if cause != nil {
-		o.rec.Cause = cause.Error()
-	}
-	for name, st := range states {
-		if st != supervisor.StateFailed {
-			_ = session.WriteProcessState(o.stateFile(name), string(supervisor.StateExited), o.supervisor(name).PID())
-		}
-	}
-	if err := session.WriteRunInfo(o.rec); err != nil {
-		o.logger.Error("failed to write run.json", "error", err)
-	}
-}
-
-func (o *Orchestrator) startProcess(name string) error {
-	sup := o.supervisor(name)
-
-	captures := o.registry.Snapshot()
-	processEnv, err := env.Compose(o.cfg.ProjectPath, sup.Proc.Env, captures)
-	if err != nil {
-		return fmt.Errorf("process %s: env composition failed: %w", name, err)
-	}
-
-	envrcEnv, _ := env.LoadEnvrc(o.cfg.ProjectPath)
-	refData := interpolate.BuildRefData(captures, envrcEnv)
-	resolvedCmd, err := interpolate.Resolve(sup.Proc.Cmd, refData)
-	if err != nil {
-		return fmt.Errorf("process %s: cmd interpolation failed: %w", name, err)
-	}
-	sup.Proc.Cmd = resolvedCmd
-	sup.Env = processEnv
-
-	for _, tmpl := range sup.Proc.Templates {
-		tmplData := buildTemplateData(captures, envrcEnv)
-		if err := tmplPkg.Render(o.cfg.ProjectPath, tmpl.Src, tmpl.Dst, tmplData); err != nil {
-			return fmt.Errorf("process %s: template render failed: %w", name, err)
-		}
-	}
-
-	o.logger.Info("starting process", "process", name, "cmd", resolvedCmd)
-	return sup.Start(context.Background())
-}
-
-func (o *Orchestrator) abort(failedProcess string, err error, states map[string]supervisor.State) error {
-	var b strings.Builder
-	fmt.Fprintf(&b, "\n--- FAILED: %s ---\n", failedProcess)
-	if err != nil {
-		fmt.Fprintf(&b, "Cause: %s\n", err)
-	}
-	if sup := o.supervisor(failedProcess); sup != nil {
-		lastLog := sup.CopyLastLogPublic()
-		if len(lastLog) > 0 {
-			b.WriteString("Last output:\n")
-			for _, line := range lastLog {
-				fmt.Fprintf(&b, "  %s\n", line)
-			}
-		}
-	}
-	fmt.Fprintf(&b, "Full log: %s\n", filepath.Join(o.runDir, failedProcess+".log"))
-	fmt.Fprintf(&b, "Read it later with: stackstart logs %s\n", failedProcess)
-	fmt.Fprint(os.Stderr, b.String())
-
-	o.markStopping()
-	o.shutdownAll()
-	o.finish(session.OutcomeFailed, failedProcess, err, states)
-	if err != nil {
-		return fmt.Errorf("process %s failed: %w", failedProcess, err)
-	}
-	return fmt.Errorf("process %s failed", failedProcess)
-}
-
-// shutdownAll stops every process that is still running, dependents first.
-// A process's state does not matter: one that failed readiness may still be
-// alive and must be stopped too.
-func (o *Orchestrator) shutdownAll() {
-	order := reverseDepOrder(o.cfg.Profile.Processes)
-	o.logger.Info("shutting down all processes", "order", order)
-
-	for _, name := range order {
-		sup := o.supervisor(name)
-		if sup == nil || !sup.Alive() {
-			continue
-		}
-		o.logger.Info("stopping process", "process", name)
-		sup.Stop(o.cfg.Profile.Processes[name].GracePeriod())
-	}
-}
+// Stopping reports whether the stack has started to shut down (from a
+// signal, down, or a failure).
+func (o *Orchestrator) Stopping() bool { return o.stopping.Load() }
 
 // ForceKill immediately SIGKILLs every process group. Safe to call from a
 // signal handler while Run is in progress.
 func (o *Orchestrator) ForceKill() {
-	o.supMu.Lock()
-	sups := make([]*supervisor.Supervisor, 0, len(o.supervisors))
-	for _, s := range o.supervisors {
-		sups = append(sups, s)
+	o.procMu.Lock()
+	sups := make([]*supervisor.Supervisor, 0, len(o.procs))
+	for _, p := range o.procs {
+		if p.sup != nil {
+			sups = append(sups, p.sup)
+		}
 	}
-	o.supMu.Unlock()
+	o.procMu.Unlock()
 	for _, s := range sups {
 		if s.Alive() {
 			s.Kill()
@@ -429,15 +318,15 @@ func (o *Orchestrator) ForceKill() {
 	}
 }
 
-// notice prints a line from stackstart itself to stderr, keeping stdout for
-// process output.
+// notice prints a line from stackstart itself, keeping stdout for process
+// output.
 func (o *Orchestrator) notice(c *color.Color, msg string) {
 	if o.cfg.Quiet {
 		return
 	}
 	o.consoleMu.Lock()
 	defer o.consoleMu.Unlock()
-	fmt.Fprintln(os.Stderr, c.Sprint("stackstart: "+msg))
+	_, _ = fmt.Fprintln(o.notices, c.Sprint("stackstart: "+msg))
 }
 
 func (o *Orchestrator) setupLogger() func() {
@@ -446,7 +335,6 @@ func (o *Orchestrator) setupLogger() func() {
 		o.logger = slog.Default()
 		return func() {}
 	}
-
 	var handler slog.Handler
 	if o.cfg.LogFormat == "json" {
 		handler = slog.NewJSONHandler(logFile, nil)
@@ -455,6 +343,31 @@ func (o *Orchestrator) setupLogger() func() {
 	}
 	o.logger = slog.New(handler)
 	return func() { _ = logFile.Close() }
+}
+
+func (o *Orchestrator) stateFile(name string) string {
+	return filepath.Join(o.runDir, name+".state")
+}
+
+// setState changes a process's state and records it.
+func (o *Orchestrator) setState(p *proc, state string) {
+	p.state = state
+	_ = session.WriteProcessState(o.stateFile(p.name), state, p.pid)
+}
+
+// writeRecord writes the live session record and the run's run.json.
+func (o *Orchestrator) writeRecord() {
+	for i := range o.rec.Processes {
+		if p := o.procs[o.rec.Processes[i].Name]; p != nil {
+			o.rec.Processes[i].PID = p.pid
+		}
+	}
+	if err := session.WriteRecord(o.rec); err != nil {
+		o.logger.Error("failed to write session record", "error", err)
+	}
+	if err := session.WriteRunInfo(o.rec); err != nil {
+		o.logger.Error("failed to write run.json", "error", err)
+	}
 }
 
 func sortedNames(processes map[string]config.Process) []string {
@@ -466,20 +379,53 @@ func sortedNames(processes map[string]config.Process) []string {
 	return names
 }
 
-// buildDepGraph returns a map of process -> list of dependencies.
-func buildDepGraph(processes map[string]config.Process) map[string][]string {
-	graph := make(map[string][]string, len(processes))
-	for name, proc := range processes {
-		graph[name] = proc.DependsOn
+// dependents returns every process that depends on name, directly or not.
+func (o *Orchestrator) dependents(name string) []string {
+	seen := map[string]bool{}
+	var walk func(string)
+	walk = func(n string) {
+		for _, other := range o.order {
+			if seen[other] {
+				continue
+			}
+			for _, d := range o.procs[other].cfg.DependsOn {
+				if d == n {
+					seen[other] = true
+					walk(other)
+					break
+				}
+			}
+		}
 	}
-	return graph
+	walk(name)
+	var out []string
+	for _, n := range o.order {
+		if seen[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// stopOrder sorts names so dependents come before what they depend on.
+func (o *Orchestrator) stopOrder(names []string) []string {
+	want := map[string]bool{}
+	for _, n := range names {
+		want[n] = true
+	}
+	var order []string
+	for _, n := range reverseDepOrder(o.cfg.Profile.Processes) {
+		if want[n] {
+			order = append(order, n)
+		}
+	}
+	return order
 }
 
 // reverseDepOrder computes a shutdown order (reverse topological).
 func reverseDepOrder(processes map[string]config.Process) []string {
 	var order []string
 	visited := make(map[string]bool)
-
 	var visit func(string)
 	visit = func(name string) {
 		if visited[name] {
@@ -493,11 +439,9 @@ func reverseDepOrder(processes map[string]config.Process) []string {
 		}
 		order = append(order, name)
 	}
-
 	for _, name := range sortedNames(processes) {
 		visit(name)
 	}
-
 	for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
 		order[i], order[j] = order[j], order[i]
 	}

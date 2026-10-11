@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/mattn/go-isatty"
+
 	"github.com/orpic/stack-start/internal/session"
 	"github.com/orpic/stack-start/internal/tail"
 	"github.com/spf13/cobra"
@@ -23,18 +25,30 @@ func newLogsCmd() *cobra.Command {
 		Short: "Show a process's log, from a running stack or the last run",
 		Long: `Show a process's log.
 
-If the stack is running, prints the last few lines and then follows new
-output until Ctrl-C. If the stack has stopped or crashed, prints the whole
-log of its last run and exits.
+If the stack is running and stdout is a terminal, prints the last 10 lines
+and then follows new output until Ctrl-C. Otherwise (a stopped or crashed
+stack, or output going to a pipe or an agent) prints the log and exits.
+--follow and --no-follow choose explicitly; --lines N prints only the last
+N lines.
 
 Logs are plain text: colors and terminal control codes are removed. The
 exact bytes the process wrote are kept next to it in <process>.raw.log.`,
 		Example: `  stackstart logs backend
+  stackstart logs backend --lines 50 --no-follow
   stackstart logs backend --profile dev`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			processName := args[0]
 			profileFlag, _ := cmd.Flags().GetString("profile")
+			lines, _ := cmd.Flags().GetInt("lines")
+			follow := isatty.IsTerminal(os.Stdout.Fd())
+			if cmd.Flags().Changed("follow") {
+				follow, _ = cmd.Flags().GetBool("follow")
+			}
+			if cmd.Flags().Changed("no-follow") {
+				nf, _ := cmd.Flags().GetBool("no-follow")
+				follow = !nf
+			}
 			cwd, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("cannot determine working directory: %w", err)
@@ -54,6 +68,18 @@ exact bytes the process wrote are kept next to it in <process>.raw.log.`,
 				if err != nil {
 					return err
 				}
+				if !follow {
+					fmt.Fprintf(os.Stderr, "==> %s · %s · %s · running <==\n", processName, rec.Profile, rec.ProjectPath)
+					data, err := tail.LastLines(p.LogFile, lines)
+					if err != nil {
+						return fmt.Errorf("reading %s: %w", p.LogFile, err)
+					}
+					_, err = os.Stdout.Write(data)
+					return err
+				}
+				if lines <= 0 {
+					lines = liveHistoryLines
+				}
 				fmt.Fprintf(os.Stderr, "==> %s · %s · %s · running (Ctrl-C to stop) <==\n",
 					processName, rec.Profile, rec.ProjectPath)
 
@@ -65,7 +91,7 @@ exact bytes the process wrote are kept next to it in <process>.raw.log.`,
 					<-sigCh
 					cancel()
 				}()
-				return tail.FollowFrom(ctx, p.LogFile, os.Stdout, liveHistoryLines)
+				return tail.FollowFrom(ctx, p.LogFile, os.Stdout, lines)
 			}
 
 			runs, err := session.LatestFinishedRuns(cwd, profileFlag)
@@ -86,7 +112,7 @@ exact bytes the process wrote are kept next to it in <process>.raw.log.`,
 			}
 			fmt.Fprintf(os.Stderr, "==> %s · %s · %s · %s <==\n",
 				processName, rec.Profile, rec.ProjectPath, describeEndedRun(rec))
-			data, err := tail.LastLines(p.LogFile, 0)
+			data, err := tail.LastLines(p.LogFile, lines)
 			if err != nil {
 				return fmt.Errorf("reading %s: %w", p.LogFile, err)
 			}
@@ -95,6 +121,9 @@ exact bytes the process wrote are kept next to it in <process>.raw.log.`,
 		},
 	}
 	cmd.Flags().String("profile", "", "profile name (required when multiple sessions match)")
+	cmd.Flags().Int("lines", 0, "print only the last N lines (default: all, or 10 when following)")
+	cmd.Flags().Bool("follow", false, "keep printing new lines (default when stdout is a terminal)")
+	cmd.Flags().Bool("no-follow", false, "print and exit even on a terminal")
 	return cmd
 }
 

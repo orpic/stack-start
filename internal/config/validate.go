@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 func Validate(profile Profile, profileName string) error {
@@ -55,6 +56,27 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 		if dep == name {
 			return fmt.Errorf("process %q: cannot depend on itself", name)
 		}
+	}
+
+	switch proc.Restart {
+	case "", "never", "on-failure", "always":
+	default:
+		return fmt.Errorf("process %q: restart must be 'never', 'on-failure' or 'always', got %q", name, proc.Restart)
+	}
+	if proc.Retries < 0 {
+		return fmt.Errorf("process %q: retries must not be negative", name)
+	}
+	if proc.Backoff != "" {
+		for _, part := range strings.Split(proc.Backoff, "..") {
+			if _, err := time.ParseDuration(strings.TrimSpace(part)); err != nil {
+				return fmt.Errorf("process %q: backoff must be '<duration>' or '<min>..<max>', got %q", name, proc.Backoff)
+			}
+		}
+	}
+	switch proc.OnDepRestart {
+	case "", "restart", "ignore":
+	default:
+		return fmt.Errorf("process %q: on_dep_restart must be 'restart' or 'ignore', got %q", name, proc.OnDepRestart)
 	}
 
 	if proc.OnExit != "" && proc.OnExit != "fail" && proc.OnExit != "ignore" {

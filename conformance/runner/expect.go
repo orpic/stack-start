@@ -144,6 +144,16 @@ func checkExpect(expect map[string]any, c *command) error {
 		if k == "exit" {
 			continue
 		}
+		if k == "stdout_json" || k == "stdout_json_not" {
+			m, ok := expect[k].(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s must be a mapping of path to value", k)
+			}
+			if err := checkJSON(c.out.get("stdout"), m, k == "stdout_json_not"); err != nil {
+				return fmt.Errorf("%s: %v", k, err)
+			}
+			continue
+		}
 		stream, name, ok := strings.Cut(k, "_")
 		if !ok || (stream != "stdout" && stream != "stderr" && stream != "output") || !assertionNames[name] {
 			return fmt.Errorf("unknown expectation %q", k)

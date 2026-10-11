@@ -34,9 +34,17 @@ type Record struct {
 	Cause             string     `json:"cause,omitempty"`
 	// Stopping is set once the stack has started to shut down, so a second
 	// 'down' waits instead of signalling again (which would force-kill).
-	Stopping  bool            `json:"stopping,omitempty"`
-	LogDir    string          `json:"log_dir"`
-	Processes []ProcessRecord `json:"processes"`
+	Stopping bool `json:"stopping,omitempty"`
+	// ControlSocket is where the running stack accepts commands.
+	ControlSocket string `json:"control_socket,omitempty"`
+	// Detached is set for stacks started with up -d.
+	Detached bool `json:"detached,omitempty"`
+	// ConsoleLog is the console output of a detached stack.
+	ConsoleLog string `json:"console_log,omitempty"`
+	// EventsFile is the run's events.jsonl.
+	EventsFile string          `json:"events_file,omitempty"`
+	LogDir     string          `json:"log_dir"`
+	Processes  []ProcessRecord `json:"processes"`
 }
 
 // WriteRecord writes the session record JSON to disk atomically, so readers

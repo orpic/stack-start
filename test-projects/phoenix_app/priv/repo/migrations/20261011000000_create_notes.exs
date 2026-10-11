@@ -3,8 +3,9 @@ defmodule PhoenixApp.Repo.Migrations.CreateNotes do
 
   def change do
     # Reproduces a migration that fails on real data. The composite stack's
-    # bad-migration profile sets BROKEN_MIGRATION=1.
-    if System.get_env("BROKEN_MIGRATION") == "1" do
+    # bad-migration profile sets BROKEN_MIGRATION=1; creating the file
+    # .data/migration-fixed stands for fixing the data.
+    if System.get_env("BROKEN_MIGRATION") == "1" and not File.exists?(".data/migration-fixed") do
       raise ~s(column "organization_id" of relation "notes" contains null values)
     end
 

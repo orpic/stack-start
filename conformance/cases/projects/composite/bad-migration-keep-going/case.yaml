@@ -1,0 +1,25 @@
+name: "Composite: with --keep-going a bad migration leaves Postgres up; fix the data, start migrate, Phoenix comes up"
+roadmap: "1.5"
+project: test-projects
+requires: ["mix --version", "npm --version", "initdb --version", "test -d phoenix_app/deps", "test -d node_api/node_modules"]
+timeout: 600s
+notes: "the Phase 1 acceptance criterion; in production a bad migration tore down the stack and threw away a finished build"
+steps:
+  - run: up bad-migration -d --keep-going
+    timeout: 300s
+    expect: {exit: 1, stderr_contains: ["--- FAILED: migrate ---", "contains null values", "stackstart start migrate"]}
+  - run: status --json
+    save_json: {PG: "sessions[0].processes[name=postgres].pid"}
+    expect:
+      stdout_json: {"sessions[0].processes[name=postgres].state": ready, "sessions[0].processes[name=migrate].state": failed, "sessions[0].processes[name=phoenix].state": blocked, "sessions[0].processes[name=api].state": ready}
+  - write_file: {path: phoenix_app/.data/migration-fixed, content: "fixed\n"}
+  - run: start migrate
+    timeout: 200s
+  - run: wait phoenix --timeout 180s
+  - http: {url: "http://127.0.0.1:4110/", timeout: 30s}
+  - run: status --json
+    expect: {stdout_json: {"sessions[0].processes[name=postgres].pid": "${PG}", "sessions[0].processes[name=phoenix].state": ready}}
+  - run: down
+    timeout: 90s
+  - port: {addr: "127.0.0.1:4110", open: false, timeout: 5s}
+  - port: {addr: "127.0.0.1:5545", open: false, timeout: 5s}

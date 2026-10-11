@@ -3,6 +3,6 @@ roadmap: "0.3"
 steps:
   - start: up p
   - wait_output: {id: up, contains: "stackstart: all 2 processes ready", timeout: 5s}
-  - expect_output: {id: up, contains: "talker | RUNNING"}
+  - wait_output: {id: up, contains: "talker | RUNNING", timeout: 5s}
   - signal: {id: up, sig: TERM}
   - wait_exit: {id: up, exit: 0, timeout: 15s}

@@ -14,7 +14,7 @@ steps:
     cwd: .worktrees/feature
     expect: {exit: 1, stderr_contains: "no running or previous stackstart session found for ${WORK}/.worktrees/feature"}
   - alive: {id: up, for: 300ms}
-  - start: logs app
+  - start: logs app --follow
     id: follow
     cwd: packages/web
   - wait_output: {id: follow, stream: stdout, contains: "main checkout", timeout: 5s}

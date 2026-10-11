@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -28,6 +29,49 @@ type Process struct {
 	OnExit          string            `yaml:"on_exit,omitempty"`
 	Required        *bool             `yaml:"required,omitempty"`
 	StopGracePeriod Duration          `yaml:"stop_grace_period,omitempty"`
+	// Restart is the retry policy: never (default), on-failure, always.
+	Restart string `yaml:"restart,omitempty"`
+	// Retries is how many failed attempts in a row are retried before the
+	// process counts as failed. 0 with a restart policy means no limit.
+	Retries int `yaml:"retries,omitempty"`
+	// Backoff is the delay between attempts, "min..max", doubling each time.
+	Backoff string `yaml:"backoff,omitempty"`
+	// OnDepRestart is what happens to this process when a process it depends
+	// on is restarted by its retry policy: restart (default; only when a
+	// captured value it uses changed) or ignore.
+	OnDepRestart string `yaml:"on_dep_restart,omitempty"`
+	// SecretEnv names env variables whose values are shown as *** in status,
+	// events and env output.
+	SecretEnv []string `yaml:"secret_env,omitempty"`
+}
+
+// RestartPolicy returns the retry policy, defaulting to never.
+func (p Process) RestartPolicy() string {
+	if p.Restart == "" {
+		return "never"
+	}
+	return p.Restart
+}
+
+// BackoffRange returns the delay before the first retry and the maximum.
+func (p Process) BackoffRange() (min, max time.Duration) {
+	min, max = time.Second, 30*time.Second
+	if p.Backoff == "" {
+		return
+	}
+	lo, hi, found := strings.Cut(p.Backoff, "..")
+	if d, err := time.ParseDuration(strings.TrimSpace(lo)); err == nil {
+		min = d
+		if !found {
+			max = d
+		}
+	}
+	if found {
+		if d, err := time.ParseDuration(strings.TrimSpace(hi)); err == nil {
+			max = d
+		}
+	}
+	return
 }
 
 func (p Process) IsOneshot() bool {
@@ -80,6 +124,8 @@ type Capture struct {
 	Name     string `yaml:"name"`
 	Log      string `yaml:"log"`
 	Required *bool  `yaml:"required,omitempty"`
+	// Secret hides the value (***) in status, events and env output.
+	Secret bool `yaml:"secret,omitempty"`
 }
 
 func (c Capture) IsRequired() bool {

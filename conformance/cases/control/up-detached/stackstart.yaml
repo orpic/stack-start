@@ -1,0 +1,11 @@
+profiles:
+  p:
+    processes:
+      db:
+        cmd: |-
+          echo db ready; exec perl -e 'sleep 300' db-${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: db ready}]}
+      web:
+        cmd: |-
+          echo web up; exec perl -e 'sleep 300' web-${TOKEN}
+        depends_on: [db]

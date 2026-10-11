@@ -1,0 +1,12 @@
+profiles:
+  p:
+    processes:
+      flaky:
+        # Fails twice (like a migration racing a database that isn't up yet),
+        # then works.
+        cmd: |-
+          n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count; echo "attempt $n"; [ $n -ge 3 ] || exit 1; echo up; exec perl -e 'sleep 300' ${TOKEN}
+        restart: on-failure
+        retries: 3
+        backoff: 100ms..400ms
+        readiness: {timeout: 5s, checks: [{log: "^up$"}]}

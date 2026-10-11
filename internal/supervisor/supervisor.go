@@ -10,7 +10,10 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	captureLib "github.com/orpic/stack-start/internal/capture"
 	"github.com/orpic/stack-start/internal/config"
@@ -39,9 +42,20 @@ const lastLogLines = 10
 // Event is emitted when a supervised process changes state.
 type Event struct {
 	Process string
+	// Gen identifies which start of the process the event belongs to, so
+	// events from a process that was since restarted can be ignored.
+	Gen     int
 	State   State
 	Err     error
 	LastLog []string
+	// Exit is set on events caused by the process exiting.
+	Exit *ExitInfo
+}
+
+// ExitInfo describes how a process ended.
+type ExitInfo struct {
+	Code   int    `json:"code"`
+	Signal string `json:"signal,omitempty"`
 }
 
 // Supervisor manages a single child process.
@@ -56,6 +70,11 @@ type Supervisor struct {
 	Registry *captureLib.Registry
 	Events   chan<- Event
 	Env      []string
+	// Gen is copied into every event (see Event.Gen).
+	Gen int
+	// Notify, if set, receives things worth an event-log entry that are not
+	// state changes: "capture", "screen_cleared", "fail_on_warning".
+	Notify func(typ string, fields map[string]any)
 
 	cmd       *exec.Cmd
 	ptyMaster *os.File
@@ -77,6 +96,7 @@ type Supervisor struct {
 	failed  atomic.Bool
 
 	readinessCancel context.CancelFunc
+	exit            *ExitInfo
 }
 
 // Start spawns the child process under a PTY and starts reading its output,
@@ -183,6 +203,7 @@ func (s *Supervisor) pump() {
 func (s *Supervisor) handleLine(l output.Line) {
 	if l.Cleared {
 		s.Mux.Marker("screen cleared")
+		s.notify("screen_cleared", nil)
 	}
 	if l.Cleared && l.Plain == "" {
 		return
@@ -196,6 +217,7 @@ func (s *Supervisor) handleLine(l output.Line) {
 		for _, re := range s.failOn {
 			if re.Match(line) {
 				s.Mux.Marker(fmt.Sprintf("warning: matched fail_on /%s/ after the process was ready", re))
+				s.notify("fail_on_warning", map[string]any{"pattern": re.String(), "line": l.Plain})
 				break
 			}
 		}
@@ -211,6 +233,7 @@ func (s *Supervisor) handleLine(l output.Line) {
 	for _, c := range s.Captures {
 		if matched, val := c.Match(line); matched {
 			s.Registry.Store(s.Name, c.Name, val)
+			s.notify("capture", map[string]any{"name": c.Name, "value": val})
 		}
 	}
 	for _, re := range s.failOn {
@@ -317,6 +340,7 @@ func (s *Supervisor) waitLoop() {
 	}
 	_ = s.ptyMaster.Close()
 
+	s.exit = exitInfo(s.cmd)
 	close(s.done)
 	defer s.readinessCancel()
 
@@ -367,10 +391,58 @@ func (s *Supervisor) readinessMode() string {
 func (s *Supervisor) emitEvent(state State, err error) {
 	s.Events <- Event{
 		Process: s.Name,
+		Gen:     s.Gen,
 		State:   state,
 		Err:     err,
 		LastLog: s.copyLastLog(),
+		Exit:    s.Exit(),
 	}
+}
+
+func (s *Supervisor) notify(typ string, fields map[string]any) {
+	if s.Notify != nil {
+		s.Notify(typ, fields)
+	}
+}
+
+func (s *Supervisor) exited() bool {
+	if s.done == nil {
+		return false
+	}
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// exitInfo reads how cmd ended once Wait has returned.
+func exitInfo(cmd *exec.Cmd) *ExitInfo {
+	ps := cmd.ProcessState
+	if ps == nil {
+		return nil
+	}
+	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return &ExitInfo{Code: 128 + int(ws.Signal()), Signal: unix.SignalName(ws.Signal())}
+	}
+	return &ExitInfo{Code: ps.ExitCode()}
+}
+
+// Exit returns how the process ended, or nil while it runs.
+func (s *Supervisor) Exit() *ExitInfo {
+	if !s.exited() {
+		return nil
+	}
+	return s.exit
+}
+
+// Write sends bytes to the process's terminal, as if typed.
+func (s *Supervisor) Write(p []byte) (int, error) {
+	if !s.Alive() || s.ptyMaster == nil {
+		return 0, fmt.Errorf("process %s is not running", s.Name)
+	}
+	return s.ptyMaster.Write(p)
 }
 
 func (s *Supervisor) appendLastLog(line string) {
