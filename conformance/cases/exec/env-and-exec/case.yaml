@@ -3,6 +3,8 @@ roadmap: "3.1, 3.2"
 env: {FROM_SHELL: shell, OVERRIDDEN: shell, PAGER: less, PATH: "/usr/bin:/bin:/usr/sbin:/sbin"}
 requires: ["! command -v direnv"]
 steps:
+  # .env is gitignored in this repo, so the case writes it.
+  - write_file: {path: .env, content: "FROM_DOTENV=dotenv\nOVERRIDDEN=dotenv\n"}
   - run: up p -d
     timeout: 20s
   - run: env app
