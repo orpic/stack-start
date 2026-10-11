@@ -15,4 +15,4 @@ steps:
   - expect_output: {id: up, stream: stdout, not_contains: "phoenix  |"}
   - port: {addr: "127.0.0.1:5545", open: false, timeout: 5s}
   - run: logs migrate --profile bad-migration
-    expect: {stdout_contains: "column \"organization_id\" of relation \"notes\" contains null values", stdout_not_contains: "\e"}
+    expect: {stdout_contains: "column \"owner_ref\" of relation \"notes\" contains null values", stdout_not_contains: "\e"}

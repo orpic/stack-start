@@ -11,7 +11,7 @@ Written 2026-10-10 against v0.2.3, last updated 2026-10-10 (late). This replaces
 
 Stackstart should be the process manager an agent (Claude Code, Codex, Cursor, or any other harness and model) uses to run a real local stack without help: start it, restart one process, read what happened, wait for a rebuild, run a one-off command with the right env, and stop it. And it should still be pleasant for a human at a terminal.
 
-Before Phase 0 an agent could start a stack, watch it and stop it, and nothing else. In practice it couldn't even do that, because `up` blocks the terminal. In one production project (Phoenix + Node tool-server + cloudflared/tailscale + Postgres) the agent never ran stackstart once in ~80 sessions. A human started and restarted everything and pasted logs back into chat. See [Evidence](#evidence).
+Before Phase 0 an agent could start a stack, watch it and stop it, and nothing else. In practice it couldn't even do that, because `up` blocks the terminal. In practice a human ends up starting and restarting everything and pasting logs back into chat. See [Evidence](#evidence).
 
 ## Design rules for every feature
 
@@ -124,16 +124,16 @@ Every row needs at least one synthetic case and, where a real tool can run offli
 | `phoenix_app` | **Done.** Cases: `dev` (setup, ready, `GET /`, `.ex` edit → "Compiling 1 file (.ex)", CSS edit → tailwind `Done in`, down leaves no BEAM/watchers/postgres, data reused), `iex`, `bad-port`. | phoenix 4100, postgres 5544 | Phoenix 1.8 + LiveView + Ecto. Watchers as BEAM ports (process-group escape), code reloader, tailwind/esbuild rebuilds, graceful BEAM shutdown, `iex -S mix phx.server` prompt, migrations as oneshots, project-local Postgres |
 | `django_app` | **Done.** Case `dev`: setup (venv + pip), migrate, runserver, edit → `<file> changed, reloading.`, down. | runserver 8100 | Django 5.2 LTS, StatReloader, `migrate` oneshot on SQLite, venv setup |
 | `fastapi_app` | **Done.** Case `dev`: setup, uvicorn ready (stderr logging), edit → `WatchFiles detected changes … Reloading...` with a new worker PID, down stops reloader and worker. | uvicorn 8200 | FastAPI + `uvicorn --reload` |
-| `node_api` | **Done.** Case `dev`: `npm ci` + `tsc` (spinner leaves no stray characters), `tsx watch` restart with a screen clear, down stops npm → tsx → node. | 3100 | Express 5 in TypeScript with `tsx watch` (mirrors the production tool-server) |
+| `node_api` | **Done.** Case `dev`: `npm ci` + `tsc` (spinner leaves no stray characters), `tsx watch` restart with a screen clear, down stops npm → tsx → node. | 3100 | Express 5 in TypeScript with `tsx watch` (a typical Node API server) |
 | `react_router_app` | **Done.** Case `dev`: Unicode Vite banner as ready signal, route edit → `(ssr) page reload`, `vite.config.ts` edit → `server restarted.`, down. | vite 5300 | React Router 8 framework mode on Vite 8 |
 | `rails_app` | **Done** (Ruby 3.4.11 installed with asdf). Cases `dev` (foreman → puma + tailwind watcher, view reload, CSS rebuild, graceful foreman shutdown) and `console` (`rails-app(dev):001>` prompt). | puma 3200 | Rails 8.1, foreman, puma, tailwind, `db:prepare` oneshot, console prompt |
-| Composite (`test-projects/stackstart.yaml`) | **Done.** Cases: `fullstack-offline`, `fullstack` (real cloudflared; passed 2026-10-11), `fullstack-ngrok` (passed 2026-10-11; skips without an authtoken), `tunnel-fails`, `bad-migration`, `port-in-use`, `cascade`. | postgres 5545, phoenix 4110, node_api 3110, react_router 5310 | The production stack: Postgres → Phoenix + Node API + React Router + tunnel, URL captured and injected into Phoenix (`/tunnel`) and the API (`publicUrl`) |
+| Composite (`test-projects/stackstart.yaml`) | **Done.** Cases: `fullstack-offline`, `fullstack` (real cloudflared; passed 2026-10-11), `fullstack-ngrok` (passed 2026-10-11; skips without an authtoken), `tunnel-fails`, `bad-migration`, `port-in-use`, `cascade`. | postgres 5545, phoenix 4110, node_api 3110, react_router 5310 | A typical multi-service stack: Postgres → Phoenix + Node API + React Router + tunnel, URL captured and injected into Phoenix (`/tunnel`) and the API (`publicUrl`) |
 
 Composite profiles:
 
 - `fullstack`: real `cloudflared tunnel --url http://127.0.0.1:4110` (network-only; cases `requires` network).
 - `fullstack-offline`: same stack, tunnel replaced by an inline command printing cloudflared's real success banner (copied from real output) and sleeping. Used for every offline case.
-- Scenario profiles reproducing the production incidents: `tunnel-fails` (cloudflared error line with the `api.trycloudflare.com` decoy; must fail fast via `fail_on`, dependents never start), `bad-migration` (a migration that raises when `BROKEN_MIGRATION=1`, on its own database recreated each run), and the `port-in-use` case (occupies Phoenix's port 4110 before `up fullstack-offline`). Phase 1 (`--keep-going`, retries, `restart`) is measured against these.
+- Scenario profiles reproducing common failures: `tunnel-fails` (cloudflared error line with the `api.trycloudflare.com` decoy; must fail fast via `fail_on`, dependents never start), `bad-migration` (a migration that raises when `BROKEN_MIGRATION=1`, on its own database recreated each run), and the `port-in-use` case (occupies Phoenix's port 4110 before `up fullstack-offline`). Phase 1 (`--keep-going`, retries, `restart`) is measured against these.
 - `setup-all` installs every project's dependencies. Composite profile names must not clash with the projects' own (`setup`, `dev`, `iex`, `console`), because from inside a project both files are visible.
 
 ---
@@ -276,18 +276,18 @@ To be fixed in 2.7 and kept stable after that. Today every error exits 1.
 
 ## Evidence
 
-From one production project (Elixir/Phoenix + Node tool-server + cloudflared/tailscale + Postgres) across roughly 80 agent sessions on v0.2.2:
+Typical ways an agent fails to run a multi-service local stack (for example Phoenix + a Node API + a tunnel + Postgres) with stackstart v0.2.x, and the items that address them:
 
-- **The agent never ran stackstart itself.** `up` holds the terminal, so the agent asked the human to start, restart and stop it.
-- **Four Phoenix restarts in an hour,** each one a full stack restart by hand. Fixed by 1.2.
-- **Logs pasted into chat** because `logs` only showed new lines and never exited. Fixed by 0.7 and 1.8.
-- **Three `up` attempts and about 30 minutes to get a stack running.** A bad migration and then a slow trycloudflare request each tore down the whole stack and threw away a finished tool-server build. Fixed by 1.4, 1.5, 0.10 and 3.4.
-- **The agent read captured values with `epmd`, `rpc` and `ps eww`,** because `status` had no captures, ports or PIDs. Fixed by 1.7.
-- **An agent ran a script outside stackstart** with `source .envrc`, which points at production, and reached the production database (database permissions stopped the write). Fixed by 3.1, 3.2 and 5.4.
+- **The agent doesn't run stackstart at all.** `up` holds the terminal, so the agent asks the human to start, restart and stop it. Fixed by 1.1.
+- **Every restart of one service is a full stack restart by hand.** Fixed by 1.2.
+- **Logs are pasted into chat** because `logs` only showed new lines and never exited. Fixed by 0.7 and 1.8.
+- **Several `up` attempts to get a stack running.** A failing migration or a slow tunnel request tears down the whole stack and throws away finished builds. Fixed by 1.4, 1.5, 0.10 and 3.4.
+- **The agent digs for captured values and PIDs** with tools like `epmd`, `rpc` and `ps eww`, because `status` has no captures, ports or PIDs. Fixed by 1.7.
+- **The agent runs scripts outside stackstart** after sourcing `.envrc` by hand, which can point at the wrong environment. Fixed by 3.1, 3.2 and 5.4.
 - **Port clashes between worktrees, hand-written `until curl` loops, and `pkill -f` to stop one process.** Fixed by 4.1, 2.4, 3.5 and 1.2.
 - **Logs disappear after a rebuild.** That was 0.5 (screen clears) and 0.7 (log deletion), not a config issue.
 
-For comparison, on the same project's docker compose e2e stack the agent restarted Phoenix 15 times on its own with `docker compose up -d --no-deps phoenix` and waited on a log line. Phase 0 plus 1.1, 1.2, 1.7, 1.8 and 2.4 give stackstart the same capabilities.
+By comparison, with docker compose an agent can restart one service on its own (`docker compose up -d --no-deps <service>`) and wait on a log line. Phase 0 plus 1.1, 1.2, 1.7, 1.8 and 2.4 give stackstart the same capabilities.
 
 ## Findings log
 

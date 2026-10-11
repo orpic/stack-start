@@ -4,7 +4,7 @@ covers: [decoy-url]
 project: test-projects
 requires: ["mix --version", "npm --version", "initdb --version", "test -d phoenix_app/deps", "test -d node_api/node_modules"]
 timeout: 300s
-notes: "the production incident: a slow trycloudflare request tore down the stack only after the whole timeout, and the README regex would have captured the error URL"
+notes: "a common failure: a slow trycloudflare request tore down the stack only after the whole timeout, and the README regex would have captured the error URL"
 steps:
   - start: up tunnel-fails
   - wait_exit: {id: up, exit: 1, timeout: 120s}

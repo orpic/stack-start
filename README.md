@@ -144,7 +144,7 @@ Every run keeps its logs, even after a crash. When something fails, the error en
 --- FAILED: backend ---
 Cause: process backend exited before becoming ready: exit status 1
 Last output:
-  ** (Postgrex.Error) column "organization_id" contains null values
+  ** (Postgrex.Error) column "owner_ref" contains null values
 Full log: ~/Library/Application Support/stackstart/sessions/<project>__dev/runs/20261010-221157-123/backend.log
 Read it later with: stackstart logs backend
 ```

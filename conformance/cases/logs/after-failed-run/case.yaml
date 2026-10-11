@@ -9,7 +9,7 @@ steps:
       stderr_contains: ["--- FAILED: app ---", "Cause: process app exited unexpectedly post-ready: exit status 1", "Read it later with: stackstart logs app"]
   - run: logs app
     expect:
-      stdout_equals: "ready\n** (Postgrex.Error) column \"organization_id\" contains null values\n    (ecto_sql) lib/ecto/migrator.ex:1: failed at 20260101_add_org.exs\n"
+      stdout_equals: "ready\n** (Postgrex.Error) column \"owner_ref\" contains null values\n    (ecto_sql) lib/ecto/migrator.ex:1: failed at 20260101_add_owner.exs\n"
       stderr_matches: '^==> app · p · \S+ · last run \S+ failed at \d{4}-\d\d-\d\d \d\d:\d\d:\d\d \(app\) <==\n$'
   - run: logs other
     expect: {stdout_equals: "other ran\n"}

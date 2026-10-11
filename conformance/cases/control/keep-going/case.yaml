@@ -1,6 +1,6 @@
 name: with --keep-going a failed process blocks only its dependents; fixing it and running start brings them up
 roadmap: "1.5"
-notes: "the production bad-migration incident: Postgres stays up while the migration is fixed"
+notes: "a failing migration: Postgres stays up while the migration is fixed"
 steps:
   - run: up p -d --keep-going
     timeout: 20s
@@ -22,6 +22,6 @@ steps:
   - run: status --json
     expect: {stdout_json: {"sessions[0].processes[name=app].state": ready, "sessions[0].processes[name=db].restarts": 0}}
   - run: logs migrate --no-follow
-    expect: {stdout_equals: "column \"organization_id\" contains null values\nmigrated\n"}
+    expect: {stdout_equals: "column \"owner_ref\" contains null values\nmigrated\n"}
   - run: down
   - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

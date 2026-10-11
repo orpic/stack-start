@@ -139,7 +139,7 @@ profiles:
       api: *api
       web: *web
 
-  # Production incident: the tunnel fails and its error line contains a
+  # A common failure: the tunnel fails and its error line contains a
   # trycloudflare.com URL. Must fail fast; nothing that needs the URL starts.
   tunnel-fails:
     processes:
@@ -156,7 +156,7 @@ profiles:
       api: *api
       web: *web
 
-  # Production incident: a migration fails on real data. Uses its own
+  # A common failure: a migration fails on real data. Uses its own
   # database, recreated every time, so the migration always runs.
   bad-migration:
     processes:

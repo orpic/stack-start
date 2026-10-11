@@ -3,7 +3,7 @@ roadmap: "1.5"
 project: test-projects
 requires: ["mix --version", "npm --version", "initdb --version", "test -d phoenix_app/deps", "test -d node_api/node_modules"]
 timeout: 600s
-notes: "the Phase 1 acceptance criterion; in production a bad migration tore down the stack and threw away a finished build"
+notes: "the Phase 1 acceptance criterion: a bad migration must not tear down the stack and throw away finished builds"
 steps:
   - run: up bad-migration -d --keep-going
     timeout: 300s

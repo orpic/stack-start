@@ -3,7 +3,7 @@ roadmap: "1.1, 1.2, 1.7"
 project: test-projects
 requires: ["mix --version", "npm --version", "initdb --version", "test -d phoenix_app/deps", "test -d node_api/node_modules", "test -d react_router_app/node_modules"]
 timeout: 600s
-notes: "the Phase 1 acceptance criterion (ROADMAP.md); in production four Phoenix restarts an hour were full-stack restarts by hand"
+notes: "the Phase 1 acceptance criterion (ROADMAP.md): restarting one service must not restart the whole stack"
 steps:
   - run: up fullstack-offline -d
     timeout: 300s

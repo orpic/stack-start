@@ -1,4 +1,4 @@
-# TypeScript + Express run by `tsx watch`, like a typical Node tool server.
+# TypeScript + Express run by `tsx watch`, like a typical Node API server.
 # Port: 3100.
 profiles:
   # Install dependencies and type-check/build: stackstart up setup

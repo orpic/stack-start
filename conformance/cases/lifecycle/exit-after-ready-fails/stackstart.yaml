@@ -2,7 +2,7 @@ profiles:
   p:
     processes:
       app:
-        cmd: echo ready; sleep 0.3; echo '** (Postgrex.Error) column "organization_id" contains null values'; exit 1
+        cmd: echo ready; sleep 0.3; echo '** (Postgrex.Error) column "owner_ref" contains null values'; exit 1
         readiness: {timeout: 5s, checks: [{log: "^ready$"}]}
       other:
         cmd: exec perl -e 'sleep 300' ${TOKEN}

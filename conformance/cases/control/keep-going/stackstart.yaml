@@ -7,7 +7,7 @@ profiles:
       migrate:
         kind: oneshot
         cmd: |-
-          if [ -f fixed ]; then echo migrated; else echo 'column "organization_id" contains null values'; exit 1; fi
+          if [ -f fixed ]; then echo migrated; else echo 'column "owner_ref" contains null values'; exit 1; fi
         depends_on: [db]
       app:
         cmd: |-

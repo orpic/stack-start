@@ -10,6 +10,6 @@ steps:
       contains:
         - "--- FAILED: app ---"
         - "Cause: process app exited unexpectedly post-ready: exit status 1"
-        - "Last output:\n  ready\n  ** (Postgrex.Error) column \"organization_id\" contains null values\n"
+        - "Last output:\n  ready\n  ** (Postgrex.Error) column \"owner_ref\" contains null values\n"
   - expect_output: {id: up, stream: stderr, matches: 'Full log: /\S+/app\.log\n'}
   - process: {matches: "${TOKEN}", absent: true, timeout: 3s}
