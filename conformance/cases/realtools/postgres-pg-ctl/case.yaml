@@ -1,0 +1,27 @@
+name: "pg_ctl: a daemonising Postgres is tracked by its pidfile, gated by pg_isready, and stopped with pg_ctl stop"
+roadmap: "3.5, 3.6"
+covers: [daemonize, silent-port]
+home: real
+requires: ["pg_ctl --version", "pg_isready --version", "initdb --version", "test \"$(id -u)\" != 0"]
+ports: [pg]
+timeout: 120s
+steps:
+  - sh: initdb -D pgdata -A trust -U postgres -E UTF8 --locale=C >/dev/null
+    timeout: 60s
+  - run: up p -d
+    timeout: 60s
+    expect: {stderr_contains: "all 2 processes ready"}
+  - run: status --json
+    save_json: {DPID: "sessions[0].processes[name=db].pid"}
+    expect: {stdout_json: {"sessions[0].processes[name=db].kind": daemon, "sessions[0].processes[name=db].state": ready}}
+  # The PID is the daemon's (the postmaster), not pg_ctl's.
+  - sh: head -1 pgdata/postmaster.pid
+    expect: {stdout_equals: "${DPID}\n"}
+  - run: logs query --no-follow
+    expect: {stdout_contains: "42"}
+  - run: logs db --no-follow
+    expect: {stdout_contains: ["server started", "database system is ready to accept connections"]}
+  - run: down
+    timeout: 60s
+  - port: {addr: "127.0.0.1:${PORT_pg}", open: false, timeout: 5s}
+  - process: {matches: "postgres -D pgdata -p ${PORT_pg}", absent: true, timeout: 5s}

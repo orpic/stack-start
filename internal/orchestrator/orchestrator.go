@@ -51,6 +51,11 @@ type Config struct {
 	Console     io.Writer
 	Notices     io.Writer
 	OpenConsole func(runDir string) (io.Writer, string, error)
+	// Preset holds captured values given on the command line (--set) for
+	// processes that were skipped.
+	Preset map[string]map[string]string
+	// NoCache runs oneshots even when their inputs are unchanged.
+	NoCache bool
 }
 
 // ErrForceKilled is returned when the stack was killed on request (a second
@@ -96,6 +101,7 @@ type proc struct {
 	recovering bool
 	// inputs are the captured values the process was started with.
 	inputs     map[string]string
+	inputsHash string // fingerprint of a oneshot's inputs at this start
 	retryTimer *time.Timer
 	// healthCancel stops the current instance's health checks.
 	healthCancel context.CancelFunc
@@ -280,6 +286,11 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	})
 	go o.serve()
 
+	for proc, caps := range o.cfg.Preset {
+		for k, v := range caps {
+			o.registry.Store(proc, k, v)
+		}
+	}
 	o.schedule()
 	o.check()
 

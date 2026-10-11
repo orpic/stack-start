@@ -1,6 +1,10 @@
 package control
 
-import "time"
+import (
+	"time"
+
+	"github.com/orpic/stack-start/internal/env"
+)
 
 // StatusSchema is the version of the status document.
 const StatusSchema = 1
@@ -78,6 +82,15 @@ type RebuildStatus struct {
 	At         time.Time `json:"at"`
 	DurationMS int64     `json:"duration_ms,omitempty"`
 	Error      string    `json:"error,omitempty"`
+}
+
+// EnvResult is a process's environment, as the running stack resolved it.
+type EnvResult struct {
+	Process string    `json:"process"`
+	Cwd     string    `json:"cwd"`
+	Vars    []env.Var `json:"vars"`
+	// Secret names variables whose values are shown as ***.
+	Secret []string `json:"secret,omitempty"`
 }
 
 // ExitStatus is how a process last ended.

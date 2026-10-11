@@ -1,0 +1,18 @@
+name: a oneshot whose inputs did not change since it last succeeded is skipped
+roadmap: "3.4"
+steps:
+  - run: up p
+    expect: {stdout_contains: "build | building", stderr_contains: "all processes finished"}
+  - run: up p
+    expect:
+      stdout_contains: "build | [stackstart] skipped: 2 input files unchanged since the last successful run"
+      stdout_not_contains: "building"
+  - run: events --type process_skipped
+    expect: {stdout_contains: "process_skipped build files=2"}
+  - edit_file: {path: src/a.ts, replace: {from: "1", to: "2"}}
+  - run: up p
+    expect: {stdout_contains: "build | building"}
+  - run: up p
+    expect: {stdout_not_contains: "building"}
+  - run: up p --no-cache
+    expect: {stdout_contains: "build | building"}

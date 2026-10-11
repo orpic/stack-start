@@ -46,6 +46,8 @@ runtime value propagation between processes.`,
 		newAttachCmd(),
 		newEventsCmd(),
 		newWaitCmd(),
+		newEnvCmd(),
+		newExecCmd(),
 	)
 
 	return root

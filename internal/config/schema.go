@@ -47,6 +47,16 @@ type Process struct {
 	Signals *Signals `yaml:"signals,omitempty"`
 	// Health re-checks a ready process; failing checks mark it degraded.
 	Health *Health `yaml:"health,omitempty"`
+	// Inputs (oneshots): globs, relative to cwd. When the command and these
+	// files are unchanged since the last successful run, the oneshot is
+	// skipped.
+	Inputs []string `yaml:"inputs,omitempty"`
+	// Daemons (kind: daemon): the command starts the real process in the
+	// background and exits. Pidfile (required) names its PID; StopCmd stops
+	// it (else SIGTERM); LogFile is its own log, followed into stackstart's.
+	Pidfile string `yaml:"pidfile,omitempty"`
+	StopCmd string `yaml:"stop_cmd,omitempty"`
+	LogFile string `yaml:"log_file,omitempty"`
 }
 
 // Signals recognise rebuilds in a process's output. Preset fills in the

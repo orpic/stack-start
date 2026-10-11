@@ -1,0 +1,13 @@
+profiles:
+  p:
+    processes:
+      svc:
+        kind: daemon
+        # Forks a background process that writes a pidfile and a log, then
+        # exits, like pg_ctl start.
+        cmd: |-
+          echo launching; perl -MPOSIX -e 'exit if fork; POSIX::setsid(); exit if fork; $0 = "svc-daemon-" . $ARGV[0]; open(STDIN, "<", "/dev/null"); open(STDOUT, ">>", "svc.log"); $|=1; open(P, ">", "svc.pid"); print P "$$$$\n"; close P; $SIG{TERM} = sub { exit 0 }; for ($i=1;;$i++) { print "daemon tick $i\n"; sleep 1 }' ${TOKEN}
+        pidfile: svc.pid
+        log_file: svc.log
+        stop_cmd: echo stop_cmd > stopped-by; kill $(cat svc.pid)
+        readiness: {timeout: 10s, checks: [{log: "daemon tick 1"}]}

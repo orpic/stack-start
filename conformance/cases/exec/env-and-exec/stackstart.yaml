@@ -1,0 +1,21 @@
+profiles:
+  p:
+    processes:
+      tunnel:
+        cmd: |-
+          echo url=https://t.example.com; echo token=s3cr3t; exec perl -e 'sleep 300' t-${TOKEN}
+        captures:
+          - {name: url, log: "url=(\\S+)"}
+          - {name: token, log: "token=(\\S+)", secret: true}
+      app:
+        cwd: sub
+        cmd: |-
+          exec perl -e 'sleep 300' a-${TOKEN}
+        depends_on: [tunnel]
+        env:
+          URL: "${tunnel.url}"
+          TOKEN_X: "${tunnel.token}"
+          OVERRIDDEN: block
+      plain:
+        cmd: |-
+          exec perl -e 'sleep 300' p-${TOKEN}

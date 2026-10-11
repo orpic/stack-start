@@ -1,0 +1,35 @@
+name: env shows a process's exact environment and where each variable came from; exec runs commands with it
+roadmap: "3.1, 3.2"
+env: {FROM_SHELL: shell, OVERRIDDEN: shell, PAGER: less, PATH: "/usr/bin:/bin:/usr/sbin:/sbin"}
+requires: ["! command -v direnv"]
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: env app
+    expect:
+      stdout_contains: ["URL=https://t.example.com\n", "FROM_ENVRC=envrc\n", "FROM_DOTENV=dotenv\n", "OVERRIDDEN=block\n", "FROM_SHELL=shell\n", "PAGER=cat\n", "TOKEN_X=***\n"]
+  - run: env app --explain
+    expect:
+      stdout_contains: ["URL=https://t.example.com  # env\n", "FROM_ENVRC=envrc  # .envrc\n", "FROM_DOTENV=dotenv  # .env\n", "OVERRIDDEN=block  # env, overrode shell, .env\n", "PAGER=cat  # default, overrode shell\n", "FROM_SHELL=shell  # shell\n"]
+  - run: env app --show-secrets
+    expect: {stdout_contains: "TOKEN_X=s3cr3t\n"}
+  - run: env app --json
+    expect: {stdout_json: {process: app, cwd: "${WORK}/sub", "secret[0]": TOKEN_X}}
+  # exec: the process's env (captured values included), cwd and exit code.
+  - run: exec app -- sh -c 'echo "$URL $FROM_ENVRC $TOKEN_X"; pwd'
+    expect: {stdout_equals: "https://t.example.com envrc s3cr3t\n${WORK}/sub\n"}
+  - run: exec app -- sh -c 'exit 7'
+    expect: {exit: 7}
+  - run: exec app sh
+    expect: {exit: 2, stderr_contains: "usage: stackstart exec <process> -- <command>"}
+  - run: down
+  # Without a running stack: composed from the config, unless it needs a capture.
+  - run: env plain --profile p
+    expect: {stdout_contains: "FROM_DOTENV=dotenv\n"}
+  - run: exec plain --profile p -- sh -c 'echo $FROM_ENVRC'
+    expect: {stdout_equals: "envrc\n"}
+  - run: env app --profile p
+    expect: {exit: 1, stderr_contains: "app uses ${tunnel.url} (in URL), which is only known while the stack runs; start it with 'stackstart up p -d'"}
+  - run: env app
+    expect: {exit: 2, stderr_contains: "no running stack here; pass --profile <name>"}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

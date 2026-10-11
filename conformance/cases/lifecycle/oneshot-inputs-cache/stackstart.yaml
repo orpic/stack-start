@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      build:
+        kind: oneshot
+        cmd: echo building
+        inputs: ["src/**", package.json, "missing/**"]

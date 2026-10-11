@@ -20,13 +20,15 @@ Notation: `<x>` is a variable part. `…` is free text. Strings are exact unless
 | `stackstart init` | | no |
 | `stackstart validate <profile>` | | no |
 | `stackstart list` | | no |
-| `stackstart up <profile>` | `-d`/`--detach`, `--no-wait`, `--timeout <d>` (10m), `--keep-going`, `--json` | foreground: until the stack stops; `-d`: until ready, failed or timed out |
+| `stackstart up <profile>` | `-d`/`--detach`, `--no-wait`, `--timeout <d>` (10m), `--keep-going`, `--json`, `--only <p,…>`, `--skip <p,…>`, `--set <p>.<capture>=<value>`, `--no-cache` | foreground: until the stack stops; `-d`: until ready, failed or timed out |
 | `stackstart down` | `--profile <name>`, `--no-wait`, `--force`, `--timeout <duration>` (default `2m`) | until the stack has stopped, unless `--no-wait` |
 | `stackstart status` | `--json`, `--all`, `--profile` | no |
 | `stackstart start\|stop\|restart <process>` | `--profile`, `--no-wait`, `--timeout <d>` (5m), `--json` | until ready (stop: stopped), unless `--no-wait` |
 | `stackstart send <process> <text>` | `--profile`, `--no-newline`, `--echo <d>` (500ms), `--json` | for `--echo` |
 | `stackstart attach <process>` | `--profile` | until Ctrl-] (needs a terminal) |
 | `stackstart events` | `--after <seq>`, `--follow`, `--json`, `--type <t>` (repeatable), `--process <p>`, `--profile` | with `--follow` |
+| `stackstart env <process>` | `--profile`, `--explain`, `--json`, `--show-secrets` | no |
+| `stackstart exec <process> -- <cmd> [args]` | `--profile` | until the command exits (its exit code) |
 | `stackstart wait [process]` | `--for ready\|exit\|rebuilt\|event:<type>`, `--after <seq>`, `--timeout <d>` (5m), `--json`, `--profile` | until the condition or the timeout |
 | `stackstart logs <process>` | `--profile <name>`, `--lines <n>`, `--follow`, `--no-follow`, `--since <d or time>`, `--grep <re>`, `-i`, `--run latest\|prev\|<id>` | follows only on a live stack with stdout on a terminal, or with `--follow` |
 | `stackstart clean` | `--all`, `--dry-run` | no |
@@ -69,7 +71,11 @@ profiles:
       <name>:
         cmd: <shell command>          # required; run with /bin/sh -c
         cwd: <relative path>          # optional; relative to the project path
-        kind: oneshot | long-running  # default long-running
+        kind: oneshot | long-running | daemon  # default long-running
+        inputs: [<glob>, …]           # oneshots: skip when unchanged (section 13)
+        pidfile: <path>               # daemons (section 13)
+        stop_cmd: <shell command>
+        log_file: <path>
         depends_on: [<name>, …]
         env: {KEY: value}             # values may use ${<process>.<capture>} and ${envrc.KEY}
         readiness:
@@ -132,7 +138,8 @@ Behavior:
 | Unknown profile (cascade) | `no profile named "<p>" applies to directory <cwd>; run 'stackstart list' to see available profiles, or 'stackstart init' to create one` |
 | Unknown profile (`--config`) | `profile "<p>" not found in <path> (available: …)` |
 | No processes | `profile "<p>" has no processes defined` |
-| Bad kind | `process "<n>": kind must be 'oneshot' or 'long-running', got "<k>"` |
+| Bad kind | `process "<n>": kind must be 'oneshot', 'long-running' or 'daemon', got "<k>"` |
+| Daemon fields | `process "<n>": kind daemon needs a pidfile`; `pidfile, stop_cmd and log_file only apply to kind: daemon`; `inputs only apply to kind: oneshot` |
 | No cmd | `process "<n>": 'cmd' is required` |
 | Absolute cwd | `process "<n>": 'cwd' must be relative to project_path, got absolute path "<cwd>"` |
 | Unknown dependency | `process "<n>": depends_on references unknown process "<d>"` |
@@ -308,3 +315,15 @@ Unknown process for any of these: exit 1, `process "<p>" not found in profile "<
 **Health.** A ready process with `health:` is checked every `interval`. After `failures` failed rounds in a row it becomes `degraded` (event `process_degraded` with `cause`, e.g. `exec test ! -f down: exit status 1`; stderr `stackstart: <p> is degraded: <cause>`); a passing round makes it `ready` again (`process_healthy`; `stackstart: <p> is healthy again`). `status --json`: `health_failures`. A degraded process counts as up (it is not restarted).
 
 **Log queries.** `logs --since <d>` (`5m`, `1h30m`), `--since 14:05` or an RFC 3339 time prints only lines written since then (each log keeps a `<process>.log.idx` index of when each line was written); `--grep <re>` (RE2; `-i` ignores case) only matching lines; `--lines N` applies after both. `--run latest|prev|<run id or prefix>` reads that run's log (header `==> <p> · <profile> · <project> · run <id> <==`); an unknown run is exit 2 with the list of runs. A bad `--since` or `--grep` is exit 2.
+
+## 13. Running things the stack's way
+
+**`env <p>`** prints `KEY=value` lines (sorted) of the environment `p` runs with: from the running stack (exactly what it got, captured values included), or, without one, composed from `--profile`'s config (exit 1 if `p` needs a captured value: `<p> uses ${<ref>} (in <KEY>), which is only known while the stack runs; start it with 'stackstart up <profile> -d'`; exit 2 without a running stack and without `--profile`). `--explain` appends `  # <source>[, overrode <earlier sources>]`, sources being `shell`, `default`, `.envrc`, `.env`, `env`. Values of `secret_env` variables and of variables set from `secret: true` captures are `***` unless `--show-secrets`. `--json`: `{"process", "cwd", "vars": [{"name", "value", "source", "overrode"}], "secret": [names]}`.
+
+**`exec <p> -- <cmd> [args]`** runs `cmd` with that environment (secrets included), in `p`'s working directory, looked up on `p`'s `PATH`, with stdin/stdout/stderr attached; stackstart exits with `cmd`'s exit code. Without `--` before the command: exit 2.
+
+**`up --only <p,…>`** starts only those processes and what they depend on. **`--skip <p,…>`** leaves processes out (dependencies on them are dropped); a remaining process that uses `${<skipped>.<capture>}` needs `--set <skipped>.<capture>=<value>`, else exit 2 with `<p> uses ${<ref>}, but <skipped> is not started; pass --set <ref>=<value>`.
+
+**Oneshot inputs.** A oneshot with `inputs` (globs relative to its cwd; `*`, `?`, `**`; a directory means everything in it) is skipped when its resolved command and the content of the matching files are the same as at its last successful run: its log and the console get `[stackstart] skipped: <n> input files unchanged since the last successful run`, the events `process_skipped` (`reason`, `inputs_hash`, `files`) and `process_ready` (`skipped: true`). `up --no-cache` runs it anyway.
+
+**Daemons.** `kind: daemon`: `cmd` starts the real process in the background and exits 0. Its PID is then read from `pidfile` (first line) and tracked (status `pid`, event `daemon_started`); `log_file`, if set, is followed into the process's log (and readiness, captures, signals see it). It counts as exited when that PID is gone. Stopping runs `stop_cmd` (in the process's cwd and env) if set, then SIGTERM, then SIGKILL after the grace period.

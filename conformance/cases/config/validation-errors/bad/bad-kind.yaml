@@ -1,2 +1,2 @@
 profiles:
-  p: {processes: {a: {cmd: x, kind: daemon}}}
+  p: {processes: {a: {cmd: x, kind: service}}}

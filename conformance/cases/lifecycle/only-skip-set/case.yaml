@@ -1,0 +1,20 @@
+name: up --only starts a process with what it needs; --skip with --set stands in for a skipped process
+roadmap: "3.3"
+steps:
+  - run: up p --only api -d
+    timeout: 20s
+    expect: {stderr_contains: "all 2 processes ready"}
+  - run: status
+    expect: {stdout_contains: "api(ready), db(ready)", stdout_not_contains: ["web(", "tunnel("]}
+  - run: down
+  - run: up p --skip tunnel --set tunnel.url=https://fixed.example.com -d
+    timeout: 20s
+    expect: {stderr_contains: "all 3 processes ready"}
+  - run: logs web --no-follow
+    expect: {stdout_equals: "web using https://fixed.example.com\n"}
+  - run: down
+  - run: up p --skip tunnel
+    expect: {exit: 2, stderr_contains: "web uses ${tunnel.url}, but tunnel is not started; pass --set tunnel.url=<value>"}
+  - run: up p --only ghost
+    expect: {exit: 2, stderr_contains: "process \"ghost\" not found in profile \"p\""}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

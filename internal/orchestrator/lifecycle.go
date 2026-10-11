@@ -92,6 +92,32 @@ func (o *Orchestrator) startProcess(p *proc) {
 	}
 	p.inputs = usedCaptures(p.cfg, refData)
 
+	// A oneshot whose inputs are unchanged since it last succeeded is
+	// skipped.
+	p.inputsHash = ""
+	if p.cfg.IsOneshot() && len(p.cfg.Inputs) > 0 {
+		cwd := o.cfg.ProjectPath
+		if p.cfg.Cwd != "" {
+			cwd = filepath.Join(cwd, p.cfg.Cwd)
+		}
+		hash, n, err := inputsHash(cwd, resolvedCmd, p.cfg.Inputs)
+		if err != nil {
+			o.onFailure(p, fmt.Errorf("process %s: %w", p.name, err), nil)
+			return
+		}
+		p.inputsHash = hash
+		if !o.cfg.NoCache && hash == o.cachedHash(p.name) {
+			mux := logmux.New(p.name, o.padTo, p.logFile, o.console, &o.consoleMu)
+			mux.Marker(fmt.Sprintf("skipped: %d input files unchanged since the last successful run", n))
+			o.ev.Emit("process_skipped", p.name, map[string]any{"reason": "inputs unchanged", "inputs_hash": hash, "files": n})
+			p.startedAt, p.readyAt = time.Now(), time.Now()
+			o.setState(p, sReady)
+			o.ev.Emit("process_ready", p.name, map[string]any{"skipped": true})
+			o.schedule()
+			return
+		}
+	}
+
 	var caps []*captureLib.Capture
 	for _, cc := range p.cfg.Captures {
 		c, err := captureLib.New(cc.Name, cc.Log, cc.IsRequired())
@@ -191,6 +217,9 @@ func (o *Orchestrator) handleSupEvent(e supervisor.Event) {
 	case supervisor.StateReady:
 		p.readyAt = time.Now()
 		p.attempt = 0
+		if p.inputsHash != "" {
+			o.storeHash(p.name, p.inputsHash)
+		}
 		o.setState(p, sReady)
 		o.ev.Emit("process_ready", p.name, map[string]any{
 			"pid": p.pid, "after_ms": p.readyAt.Sub(p.startedAt).Milliseconds(),

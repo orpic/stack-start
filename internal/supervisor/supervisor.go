@@ -108,6 +108,9 @@ type Supervisor struct {
 
 	readinessCancel context.CancelFunc
 	exit            *ExitInfo
+
+	daemonPID      atomic.Int64
+	daemonLogStart int64
 }
 
 // Start spawns the child process under a PTY and starts reading its output,
@@ -121,6 +124,12 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	if err := s.buildChecks(); err != nil {
 		s.emitEvent(StateFailed, err)
 		return err
+	}
+
+	if s.isDaemon() && s.Proc.LogFile != "" {
+		if st, err := os.Stat(s.path(s.Proc.LogFile)); err == nil {
+			s.daemonLogStart = st.Size()
+		}
 	}
 
 	s.cmd = exec.Command("/bin/sh", "-c", s.Proc.Cmd)
@@ -382,6 +391,25 @@ func (s *Supervisor) waitLoop() {
 	}
 	_ = s.ptyMaster.Close()
 
+	if s.isDaemon() && err == nil && !s.failed.Load() {
+		if derr := s.watchDaemon(); derr != nil {
+			s.exit = exitInfo(s.cmd)
+			close(s.done)
+			s.readinessCancel()
+			s.fail(derr)
+			return
+		}
+		s.exit = &ExitInfo{Code: -1}
+		close(s.done)
+		s.readinessCancel()
+		if s.failed.Load() {
+			return
+		}
+		s.settled.Store(true)
+		s.emitEvent(StateExited, fmt.Errorf("daemon (pid %d) exited", s.daemonPID.Load()))
+		return
+	}
+
 	s.exit = exitInfo(s.cmd)
 	close(s.done)
 	defer s.readinessCancel()
@@ -588,6 +616,10 @@ func (s *Supervisor) Stop(grace time.Duration) {
 	if !s.Alive() {
 		return
 	}
+	if s.daemonPID.Load() != 0 {
+		s.stopDaemon(grace)
+		return
+	}
 	GracefulStop(s.PID(), grace, s.done)
 }
 
@@ -595,6 +627,9 @@ func (s *Supervisor) Stop(grace time.Duration) {
 func (s *Supervisor) Kill() {
 	if pid := s.PID(); pid != 0 {
 		ForceKill(pid)
+	}
+	if pid := int(s.daemonPID.Load()); pid != 0 {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
 }
 

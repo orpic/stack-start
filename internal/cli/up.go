@@ -52,13 +52,34 @@ run 'stackstart start <process>'.`,
 			keepGoing, _ := cmd.Flags().GetBool("keep-going")
 			child, _ := cmd.Flags().GetBool("detached-child")
 			asJSON, _ := cmd.Flags().GetBool("json")
+			only, _ := cmd.Flags().GetStringSlice("only")
+			skip, _ := cmd.Flags().GetStringSlice("skip")
+			set, _ := cmd.Flags().GetStringArray("set")
+			noCache, _ := cmd.Flags().GetBool("no-cache")
 
 			profile, filePath, err := resolveProfile(profileName)
 			if err != nil {
 				return err
 			}
+			profile, preset, err := selectProcesses(profile, profileName, only, skip, set)
+			if err != nil {
+				return err
+			}
 			if detach && !child {
-				return upDetached(profileName, profile, keepGoing, noWait, timeout, asJSON)
+				var extra []string
+				for _, o := range only {
+					extra = append(extra, "--only", o)
+				}
+				for _, s := range skip {
+					extra = append(extra, "--skip", s)
+				}
+				for _, s := range set {
+					extra = append(extra, "--set", s)
+				}
+				if noCache {
+					extra = append(extra, "--no-cache")
+				}
+				return upDetached(profileName, profile, keepGoing, noWait, timeout, asJSON, extra)
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -73,6 +94,8 @@ run 'stackstart start <process>'.`,
 				Quiet:       quiet,
 				KeepGoing:   keepGoing,
 				Detached:    child,
+				Preset:      preset,
+				NoCache:     noCache,
 			}
 			if child {
 				cfg.OpenConsole = func(runDir string) (io.Writer, string, error) {
@@ -119,6 +142,10 @@ run 'stackstart start <process>'.`,
 	cmd.Flags().Duration("timeout", 10*time.Minute, "with -d: how long to wait for readiness")
 	cmd.Flags().Bool("keep-going", false, "keep the stack up when a required process fails")
 	cmd.Flags().Bool("json", false, "with -d: print the stack's status as JSON once ready")
+	cmd.Flags().StringSlice("only", nil, "start only these processes (and what they depend on)")
+	cmd.Flags().StringSlice("skip", nil, "do not start these processes")
+	cmd.Flags().StringArray("set", nil, "a captured value of a skipped process: <process>.<capture>=<value>")
+	cmd.Flags().Bool("no-cache", false, "run oneshots even when their inputs have not changed")
 	cmd.Flags().Bool("detached-child", false, "internal: run as the background stack")
 	_ = cmd.Flags().MarkHidden("detached-child")
 	return cmd
@@ -148,7 +175,7 @@ func resolveProfile(name string) (config.Profile, string, error) {
 
 // upDetached starts the stack as a background process and reports how its
 // start went.
-func upDetached(name string, profile config.Profile, keepGoing, noWait bool, timeout time.Duration, asJSON bool) error {
+func upDetached(name string, profile config.Profile, keepGoing, noWait bool, timeout time.Duration, asJSON bool, extra []string) error {
 	slug := session.Slug(profile.ResolvedProjectPath, name)
 	if err := os.MkdirAll(session.SessionsDir(), 0o755); err != nil {
 		return err
@@ -176,6 +203,7 @@ func upDetached(name string, profile config.Profile, keepGoing, noWait bool, tim
 	if logFormat != "" {
 		args = append(args, "--log-format", logFormat)
 	}
+	args = append(args, extra...)
 	devnull, err := os.Open(os.DevNull)
 	if err != nil {
 		return err

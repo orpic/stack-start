@@ -8,13 +8,16 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/orpic/stack-start/internal/config"
 	"github.com/orpic/stack-start/internal/control"
+	"github.com/orpic/stack-start/internal/env"
 	"github.com/orpic/stack-start/internal/events"
+	"github.com/orpic/stack-start/internal/interpolate"
 	"github.com/orpic/stack-start/internal/session"
 )
 
@@ -142,6 +145,17 @@ func (o *Orchestrator) handleCommand(c *command) {
 		reply(cmdReply{seq: seq, targets: o.stop(p, "user")})
 	case "restart":
 		reply(cmdReply{seq: seq, targets: o.restart(p, "user")})
+	case "env":
+		vars, err := env.ComposeExplained(o.cfg.ProjectPath, p.cfg.Env, o.registry.Snapshot(), os.Environ())
+		if err != nil {
+			reply(cmdReply{err: &control.Error{Code: control.CodeFailed, Process: p.name, Message: err.Error()}})
+			return
+		}
+		cwd := o.cfg.ProjectPath
+		if p.cfg.Cwd != "" {
+			cwd = filepath.Join(o.cfg.ProjectPath, p.cfg.Cwd)
+		}
+		reply(cmdReply{result: control.EnvResult{Process: p.name, Cwd: cwd, Vars: vars, Secret: o.secretEnv(p)}})
 	case "send":
 		if p.sup == nil || !p.sup.Alive() {
 			reply(cmdReply{err: &control.Error{Code: control.CodeConflict, Process: p.name,
@@ -212,6 +226,14 @@ func (o *Orchestrator) handleConn(conn net.Conn) {
 		}
 		time.Sleep(echo)
 		_ = w.OK(map[string]any{"output": readFrom(r.logPath, r.logOffset)})
+
+	case "env":
+		r := o.ask(req)
+		if r.err != nil {
+			_ = w.Fail(r.err)
+			return
+		}
+		_ = w.OK(r.result)
 
 	case "events":
 		o.streamEvents(w, req)
@@ -479,8 +501,8 @@ func (o *Orchestrator) snapshot() control.SessionStatus {
 	for _, name := range o.order {
 		p := o.procs[name]
 		kind := "long-running"
-		if p.cfg.IsOneshot() {
-			kind = "oneshot"
+		if p.cfg.Kind != "" {
+			kind = p.cfg.Kind
 		}
 		cwd := o.cfg.ProjectPath
 		if p.cfg.Cwd != "" {
@@ -516,12 +538,34 @@ func (o *Orchestrator) snapshot() control.SessionStatus {
 			}
 			rs.mu.Unlock()
 		}
+		if p.sup != nil && p.sup.Alive() {
+			// The supervisor knows a daemon's real PID once it has started.
+			ps.PID = p.sup.PID()
+		}
 		if p.state == sStopped || p.state == sPending || p.state == sBlocked || p.state == sBackoff || p.state == sFailed {
 			ps.PID = 0
 		}
 		st.Processes = append(st.Processes, ps)
 	}
 	return st
+}
+
+// secretEnv lists the env variables of p whose values are secret: named in
+// secret_env, or set from a capture marked secret.
+func (o *Orchestrator) secretEnv(p *proc) []string {
+	names := append([]string{}, p.cfg.SecretEnv...)
+	for k, v := range p.cfg.Env {
+		toks, _ := interpolate.Tokenize(v)
+		for _, t := range toks {
+			if t.Literal {
+				continue
+			}
+			if proc, capName, ok := strings.Cut(t.Value, "."); ok && o.procs[proc] != nil && o.isSecretCapture(proc, capName) {
+				names = append(names, k)
+			}
+		}
+	}
+	return names
 }
 
 func tcpPorts(cfg config.Process) []int {

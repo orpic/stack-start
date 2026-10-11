@@ -7,7 +7,7 @@ steps:
   - run: validate p --config ${WORK}/bad/no-processes.yaml
     expect: {exit: 2, stderr_contains: 'profile "p" has no processes defined'}
   - run: validate p --config ${WORK}/bad/bad-kind.yaml
-    expect: {exit: 2, stderr_contains: 'process "a": kind must be ''oneshot'' or ''long-running'', got "daemon"'}
+    expect: {exit: 2, stderr_contains: 'process "a": kind must be ''oneshot'', ''long-running'' or ''daemon'', got "service"'}
   - run: validate p --config ${WORK}/bad/no-cmd.yaml
     expect: {exit: 2, stderr_contains: 'process "a": ''cmd'' is required'}
   - run: validate p --config ${WORK}/bad/absolute-cwd.yaml
@@ -73,7 +73,7 @@ steps:
   - run: up p --config ${WORK}/bad/no-processes.yaml
     expect: {exit: 2, stderr_contains: 'profile "p" has no processes defined'}
   - run: up p --config ${WORK}/bad/bad-kind.yaml
-    expect: {exit: 2, stderr_contains: 'process "a": kind must be ''oneshot'' or ''long-running'', got "daemon"'}
+    expect: {exit: 2, stderr_contains: 'process "a": kind must be ''oneshot'', ''long-running'' or ''daemon'', got "service"'}
   - run: up p --config ${WORK}/bad/cycle.yaml
     expect: {exit: 2, stderr_contains: 'dependency cycle detected: '}
   - run: validate nope --config ${WORK}/bad/cycle.yaml

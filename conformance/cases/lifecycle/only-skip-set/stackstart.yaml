@@ -1,0 +1,18 @@
+profiles:
+  p:
+    processes:
+      db:
+        cmd: |-
+          exec perl -e 'sleep 300' db-${TOKEN}
+      api:
+        cmd: |-
+          exec perl -e 'sleep 300' api-${TOKEN}
+        depends_on: [db]
+      tunnel:
+        cmd: |-
+          echo url=https://real.example.com; exec perl -e 'sleep 300' t-${TOKEN}
+        captures: [{name: url, log: "url=(\\S+)"}]
+      web:
+        cmd: |-
+          echo web using ${tunnel.url}; exec perl -e 'sleep 300' w-${TOKEN}
+        depends_on: [api, tunnel]

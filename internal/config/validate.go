@@ -38,8 +38,14 @@ func Validate(profile Profile, profileName string) error {
 }
 
 func validateProcess(name string, proc Process, names map[string]bool, profile Profile) error {
-	if proc.Kind != "" && proc.Kind != "oneshot" && proc.Kind != "long-running" {
-		return fmt.Errorf("process %q: kind must be 'oneshot' or 'long-running', got %q", name, proc.Kind)
+	if proc.Kind != "" && proc.Kind != "oneshot" && proc.Kind != "long-running" && proc.Kind != "daemon" {
+		return fmt.Errorf("process %q: kind must be 'oneshot', 'long-running' or 'daemon', got %q", name, proc.Kind)
+	}
+	if proc.Kind == "daemon" && proc.Pidfile == "" {
+		return fmt.Errorf("process %q: kind daemon needs a pidfile", name)
+	}
+	if proc.Kind != "daemon" && (proc.Pidfile != "" || proc.StopCmd != "" || proc.LogFile != "") {
+		return fmt.Errorf("process %q: pidfile, stop_cmd and log_file only apply to kind: daemon", name)
 	}
 
 	if proc.Cmd == "" {
@@ -78,6 +84,10 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 	case "", "restart", "ignore":
 	default:
 		return fmt.Errorf("process %q: on_dep_restart must be 'restart' or 'ignore', got %q", name, proc.OnDepRestart)
+	}
+
+	if len(proc.Inputs) > 0 && !proc.IsOneshot() {
+		return fmt.Errorf("process %q: inputs only apply to kind: oneshot", name)
 	}
 
 	if s := proc.Signals; s != nil {
