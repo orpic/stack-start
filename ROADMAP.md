@@ -217,7 +217,7 @@ Changed 2026-10-10: `status --json` and non-following `logs` moved here from Pha
 
 Acceptance for Phase 1 is measured on test projects: in `fullstack-offline`, `restart phoenix` must leave Postgres, the Node API and the tunnel untouched (same PIDs and same captured URL in `status --json`); `bad-migration` with `--keep-going` must keep Postgres up, let the case fix the data and `start migrate`, and then bring Phoenix up.
 
-## Phase 2 — observation: no more pasting logs into chat
+## Phase 2 — observation: no more pasting logs into chat (done 2026-10-11)
 
 | # | Feature |
 | --- | --- |
@@ -228,7 +228,7 @@ Acceptance for Phase 1 is measured on test projects: in `fullstack-offline`, `re
 | 2.6 | Health checks after startup (re-run HTTP/TCP every N seconds) that mark a process `degraded`. |
 | 2.7 | Structured errors and stable exit codes on every command (see [Exit codes](#exit-codes)). |
 
-## Phase 3 — execution: never step outside stackstart
+## Phase 3 — execution: never step outside stackstart (done 2026-10-11)
 
 | # | Feature |
 | --- | --- |
@@ -239,7 +239,7 @@ Acceptance for Phase 1 is measured on test projects: in `fullstack-offline`, `re
 | 3.5 | `http:`, `exec:` and `file:` readiness checks. |
 | 3.6 | Daemonising processes (`pg_ctl start`, `docker compose up -d`): design how stackstart tracks a process whose parent exits immediately. |
 
-## Phase 4 — several stacks at once
+## Phase 4 — several stacks at once (done 2026-10-11)
 
 | # | Feature |
 | --- | --- |

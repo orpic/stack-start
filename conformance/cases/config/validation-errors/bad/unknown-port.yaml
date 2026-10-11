@@ -1,0 +1,4 @@
+profiles:
+  p:
+    ports: {web: 4000}
+    processes: {a: {cmd: "echo ${port.api}"}}

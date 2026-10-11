@@ -11,7 +11,10 @@ type File struct {
 }
 
 type Profile struct {
-	ProjectPath         string             `yaml:"project_path,omitempty"`
+	ProjectPath string `yaml:"project_path,omitempty"`
+	// Ports are port variables: name -> default. Processes use them as
+	// ${port.<name>}; a stack gets the default unless another stack holds it.
+	Ports               map[string]int     `yaml:"ports,omitempty"`
 	Processes           map[string]Process `yaml:"processes"`
 	ResolvedProjectPath string             `yaml:"-"`
 }

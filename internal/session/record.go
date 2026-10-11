@@ -41,6 +41,8 @@ type Record struct {
 	Detached bool `json:"detached,omitempty"`
 	// ConsoleLog is the console output of a detached stack.
 	ConsoleLog string `json:"console_log,omitempty"`
+	// Ports are the stack's allocated port variables.
+	Ports map[string]int `json:"ports,omitempty"`
 	// EventsFile is the run's events.jsonl.
 	EventsFile string          `json:"events_file,omitempty"`
 	LogDir     string          `json:"log_dir"`

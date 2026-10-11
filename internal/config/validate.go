@@ -2,8 +2,12 @@ package config
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
+
 	"github.com/orpic/stack-start/internal/interpolate"
 	"github.com/orpic/stack-start/internal/signals"
+	"gopkg.in/yaml.v3"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -30,7 +34,19 @@ func Validate(profile Profile, profileName string) error {
 		return err
 	}
 
-	if err := validateCaptureRefs(profile.Processes); err != nil {
+	for name, port := range profile.Ports {
+		if !portName.MatchString(name) {
+			return fmt.Errorf("ports: invalid name %q (letters, digits, - and _)", name)
+		}
+		if port < 1 || port > 65535 {
+			return fmt.Errorf("ports: %s must be between 1 and 65535, got %d", name, port)
+		}
+	}
+	if err := validatePortRefs(profile); err != nil {
+		return err
+	}
+
+	if err := validateCaptureRefs(profile.Processes, profile.Ports); err != nil {
 		return err
 	}
 
@@ -309,7 +325,70 @@ func detectCycles(processes map[string]Process) error {
 
 // validateCaptureRefs checks that all ${producer.capture} references in env values
 // and cmd strings point to actual captures defined on the named process.
-func validateCaptureRefs(processes map[string]Process) error {
+var portName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// validatePortRefs checks every ${port.<name>} in the profile's processes.
+func validatePortRefs(profile Profile) error {
+	for name, proc := range profile.Processes {
+		data, err := yaml.Marshal(proc)
+		if err != nil {
+			return err
+		}
+		for _, m := range PortRef.FindAllStringSubmatch(string(data), -1) {
+			if _, ok := profile.Ports[m[1]]; !ok {
+				return fmt.Errorf("process %q: reference ${port.%s} refers to unknown port %q (ports: %s)",
+					name, m[1], m[1], strings.Join(sortedPortNames(profile.Ports), ", "))
+			}
+		}
+	}
+	return nil
+}
+
+func sortedPortNames(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	if len(out) == 0 {
+		out = append(out, "none declared")
+	}
+	return out
+}
+
+// PortRef matches ${port.<name>}.
+var PortRef = regexp.MustCompile(`\$\{port\.([A-Za-z0-9_-]+)\}`)
+
+// SubstitutePorts replaces ${port.<name>} in every string of the profile's
+// processes with the allocated port.
+func SubstitutePorts(profile Profile, ports map[string]int) (Profile, error) {
+	if len(profile.Ports) == 0 {
+		return profile, nil
+	}
+	out := profile
+	out.Processes = make(map[string]Process, len(profile.Processes))
+	for name, proc := range profile.Processes {
+		data, err := yaml.Marshal(proc)
+		if err != nil {
+			return profile, err
+		}
+		text := PortRef.ReplaceAllStringFunc(string(data), func(m string) string {
+			sub := PortRef.FindStringSubmatch(m)
+			if p, ok := ports[sub[1]]; ok {
+				return strconv.Itoa(p)
+			}
+			return m
+		})
+		var p Process
+		if err := yaml.Unmarshal([]byte(text), &p); err != nil {
+			return profile, fmt.Errorf("process %q: %w", name, err)
+		}
+		out.Processes[name] = p
+	}
+	return out, nil
+}
+
+func validateCaptureRefs(processes map[string]Process, ports map[string]int) error {
 	captureIndex := make(map[string]map[string]bool)
 	for name, proc := range processes {
 		caps := make(map[string]bool, len(proc.Captures))
@@ -339,6 +418,11 @@ func validateCaptureRefs(processes map[string]Process) error {
 				ref := tok.Value
 				if strings.HasPrefix(ref, "envrc.") {
 					continue
+				}
+				if strings.HasPrefix(ref, "port.") {
+					if _, ok := ports[strings.TrimPrefix(ref, "port.")]; ok {
+						continue
+					}
 				}
 				parts := strings.SplitN(ref, ".", 2)
 				if len(parts) != 2 {

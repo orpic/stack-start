@@ -56,6 +56,8 @@ type Config struct {
 	Preset map[string]map[string]string
 	// NoCache runs oneshots even when their inputs are unchanged.
 	NoCache bool
+	// Ports are the allocated port variables (shown in status).
+	Ports map[string]int
 }
 
 // ErrForceKilled is returned when the stack was killed on request (a second
@@ -150,6 +152,10 @@ type Orchestrator struct {
 	done       chan struct{} // closed when the run is over
 
 	stopping atomic.Bool // set once the stack has started to shut down
+
+	// portHolders: process -> "port N is in use by pid X (cmd)" found
+	// before the start; shown if the process fails.
+	portHolders map[string][]string
 
 	announced bool
 	allReady  bool
@@ -249,6 +255,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		Detached:          o.cfg.Detached,
 		ConsoleLog:        consoleLog,
 		EventsFile:        evPath,
+		Ports:             o.cfg.Ports,
 	}
 
 	for _, name := range o.order {
@@ -291,6 +298,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			o.registry.Store(proc, k, v)
 		}
 	}
+	o.checkPorts()
 	o.schedule()
 	o.check()
 

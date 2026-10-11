@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/orpic/stack-start/internal/config"
 	"github.com/orpic/stack-start/internal/control"
 	"github.com/orpic/stack-start/internal/env"
 	"github.com/orpic/stack-start/internal/interpolate"
@@ -60,6 +61,12 @@ func processEnv(profile, process string) (control.EnvResult, bool, error) {
 					process, t.Value, k, profile))
 			}
 		}
+	}
+	if len(prof.Ports) > 0 {
+		if prof, err = config.SubstitutePorts(prof, prof.Ports); err != nil {
+			return control.EnvResult{}, false, err
+		}
+		pc = prof.Processes[process]
 	}
 	vars, err := env.ComposeExplained(prof.ResolvedProjectPath, pc.Env, nil, os.Environ())
 	if err != nil {

@@ -19,6 +19,7 @@ import (
 	"github.com/orpic/stack-start/internal/control"
 	"github.com/orpic/stack-start/internal/events"
 	"github.com/orpic/stack-start/internal/orchestrator"
+	"github.com/orpic/stack-start/internal/ports"
 	"github.com/orpic/stack-start/internal/session"
 )
 
@@ -82,10 +83,25 @@ run 'stackstart start <process>'.`,
 				return upDetached(profileName, profile, keepGoing, noWait, timeout, asJSON, extra)
 			}
 
+			// Port variables are allocated by the process that runs the stack.
+			var allocated map[string]int
+			if len(profile.Ports) > 0 {
+				slug := session.Slug(profile.ResolvedProjectPath, profileName)
+				allocated, err = ports.Allocate(session.SessionsDir(), slug, profile.Ports)
+				if err != nil {
+					return err
+				}
+				defer ports.Release(session.SessionsDir(), slug)
+				if profile, err = config.SubstitutePorts(profile, allocated); err != nil {
+					return err
+				}
+			}
+
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
 			cfg := orchestrator.Config{
+				Ports:       allocated,
 				Profile:     profile,
 				ProfileName: profileName,
 				ProjectPath: profile.ResolvedProjectPath,

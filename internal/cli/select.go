@@ -72,7 +72,7 @@ func selectProcesses(p config.Profile, name string, only, skip, set []string) (c
 		preset[proc][capName] = val
 	}
 
-	out := config.Profile{ProjectPath: p.ProjectPath, ResolvedProjectPath: p.ResolvedProjectPath, Processes: map[string]config.Process{}}
+	out := config.Profile{ProjectPath: p.ProjectPath, ResolvedProjectPath: p.ResolvedProjectPath, Ports: p.Ports, Processes: map[string]config.Process{}}
 	for _, n := range sortedKeys(procs) {
 		if !keep[n] {
 			continue

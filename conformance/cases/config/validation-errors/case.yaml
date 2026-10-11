@@ -100,3 +100,7 @@ steps:
     expect: {exit: 2, stderr_contains: 'process "a": readiness.checks[0] http must be an http:// or https:// URL, got "localhost:3000"'}
   - run: validate p --config ${WORK}/bad/status-without-http.yaml
     expect: {exit: 2, stderr_contains: 'process "a": readiness.checks[0] status only applies to http checks'}
+  - run: validate p --config ${WORK}/bad/unknown-port.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": reference ${port.api} refers to unknown port "api" (ports: web)'}
+  - run: validate p --config ${WORK}/bad/bad-port.yaml
+    expect: {exit: 2, stderr_contains: 'ports: web must be between 1 and 65535, got 70000'}

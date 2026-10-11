@@ -1,0 +1,31 @@
+name: two worktrees of a project run at once; the second stack gets the next free port automatically
+roadmap: "4.1, 4.2"
+ports: [web]
+steps:
+  # A second checkout of the same project inside this one, like .worktrees/<branch>.
+  - sh: |-
+      mkdir -p .worktrees/feature && cp stackstart.yaml .worktrees/feature/ && printf 'gitdir: ../../.git/worktrees/feature\n' > .worktrees/feature/.git && mkdir .git
+  - run: up p -d
+    timeout: 20s
+  - run: up p -d
+    cwd: .worktrees/feature
+    timeout: 20s
+  - run: status --json
+    save_json: {MAIN: "sessions[0].ports.web"}
+    expect: {stdout_json: {"sessions[0].ports.web": "${PORT_web}", "sessions[0].processes[name=web].ports[0]": "${PORT_web}"}}
+  - run: status --json
+    cwd: .worktrees/feature
+    save_json: {WT: "sessions[0].ports.web"}
+    expect:
+      stdout_json: {"sessions[0].project": "${WORK}/.worktrees/feature"}
+      stdout_json_not: {"sessions[0].ports.web": "${PORT_web}"}
+  - http: {url: "http://127.0.0.1:${MAIN}/", body_contains: "port ${MAIN}", timeout: 5s}
+  - http: {url: "http://127.0.0.1:${WT}/", body_contains: "port ${WT}", timeout: 5s}
+  - run: env web
+    cwd: .worktrees/feature
+    expect: {stdout_contains: "WEB_URL=http://127.0.0.1:${WT}\n"}
+  - run: down
+    cwd: .worktrees/feature
+  - run: down
+  - port: {addr: "127.0.0.1:${WT}", open: false, timeout: 5s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

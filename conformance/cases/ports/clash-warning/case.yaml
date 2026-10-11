@@ -1,0 +1,18 @@
+name: before starting, a port a process waits for that is already taken is reported with its holder
+roadmap: "4.2"
+ports: [web]
+steps:
+  - spawn: |-
+      exec perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalAddr=>q(127.0.0.1),LocalPort=>$ARGV[0],Listen=>5,ReuseAddr=>1) or die $!; $|=1; print qq(holding\n); while($c=$s->accept){close $c}' ${PORT_web}
+    id: squatter
+  - wait_output: {id: squatter, contains: holding, timeout: 5s}
+  - run: up p
+    timeout: 20s
+    expect:
+      exit: 1
+      stderr_contains:
+        - "stackstart: warning: port ${PORT_web} (which app waits for) was already in use by "
+        - "--- FAILED: app ---"
+        - "Note: port ${PORT_web} (which app waits for) was already in use by "
+  - run: events --type port_in_use --json
+    expect: {stdout_contains: ["\"port\":${PORT_web}", "\"process\":\"app\""]}

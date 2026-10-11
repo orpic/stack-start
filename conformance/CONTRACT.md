@@ -67,6 +67,7 @@ Global flags on every command: `--config <path>` (use this file instead of the c
 profiles:
   <profile>:
     project_path: <abs path>          # optional; default: the directory holding the file
+    ports: {<name>: <default port>}   # port variables, used as ${port.<name>} (section 14)
     processes:
       <name>:
         cmd: <shell command>          # required; run with /bin/sh -c
@@ -139,6 +140,7 @@ Behavior:
 | Unknown profile (`--config`) | `profile "<p>" not found in <path> (available: …)` |
 | No processes | `profile "<p>" has no processes defined` |
 | Bad kind | `process "<n>": kind must be 'oneshot', 'long-running' or 'daemon', got "<k>"` |
+| Ports | `ports: <name> must be between 1 and 65535, got <n>`; `ports: invalid name "<n>"`; `process "<n>": reference ${port.<x>} refers to unknown port "<x>" (ports: …)` |
 | Daemon fields | `process "<n>": kind daemon needs a pidfile`; `pidfile, stop_cmd and log_file only apply to kind: daemon`; `inputs only apply to kind: oneshot` |
 | No cmd | `process "<n>": 'cmd' is required` |
 | Absolute cwd | `process "<n>": 'cwd' must be relative to project_path, got absolute path "<cwd>"` |
@@ -327,3 +329,11 @@ Unknown process for any of these: exit 1, `process "<p>" not found in profile "<
 **Oneshot inputs.** A oneshot with `inputs` (globs relative to its cwd; `*`, `?`, `**`; a directory means everything in it) is skipped when its resolved command and the content of the matching files are the same as at its last successful run: its log and the console get `[stackstart] skipped: <n> input files unchanged since the last successful run`, the events `process_skipped` (`reason`, `inputs_hash`, `files`) and `process_ready` (`skipped: true`). `up --no-cache` runs it anyway.
 
 **Daemons.** `kind: daemon`: `cmd` starts the real process in the background and exits 0. Its PID is then read from `pidfile` (first line) and tracked (status `pid`, event `daemon_started`); `log_file`, if set, is followed into the process's log (and readiness, captures, signals see it). It counts as exited when that PID is gone. Stopping runs `stop_cmd` (in the process's cwd and env) if set, then SIGTERM, then SIGKILL after the grace period.
+
+## 14. Several stacks at once
+
+**Port variables.** `ports: {web: 4100}` at the profile level declares a port; `${port.web}` in any string of a process (cmd, env, cwd, readiness and health checks) becomes the port the stack got. A stack gets each declared default unless it is in use or claimed by another running stackstart stack; then it gets the next free port above it. Two stacks of the same project (e.g. two git worktrees) therefore run side by side without editing the config. `status --json` shows them as the session's `ports` (`{"web": 4101}`), and `env`/`exec` see the substituted values. Without a running stack, `env`/`exec --profile` use the defaults.
+
+**Port clashes.** Before starting, every local port a process's `tcp:` or `http:` readiness check points at is tested. One already in use gives a warning on stderr, `stackstart: warning: port <n> (which <p> waits for) was already in use by <holder> before the stack started` (holder: `pid <pid> (<command>)` when `lsof` is available, else `another process`), an event `port_in_use` (`port`, `holder`), and, if `<p>` then fails, a `Note: …` line with the same text in its FAILED block.
+
+**All sessions.** `status` inside a project shows that project's stacks; outside any (or with `--all`), every running stack.

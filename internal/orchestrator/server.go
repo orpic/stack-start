@@ -493,6 +493,7 @@ func (o *Orchestrator) snapshot() control.SessionStatus {
 		ConsoleLog:    o.rec.ConsoleLog,
 		Events:        control.EventsInfo{File: o.rec.EventsFile, LastSeq: o.ev.LastSeq()},
 		ControlSocket: o.socketPath,
+		Ports:         o.cfg.Ports,
 	}
 	if o.rec.Stopping {
 		st.State = "stopping"

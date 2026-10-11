@@ -3,13 +3,18 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fatih/color"
 
+	"github.com/orpic/stack-start/internal/config"
+	"github.com/orpic/stack-start/internal/ports"
 	"github.com/orpic/stack-start/internal/readiness"
 )
 
@@ -161,4 +166,60 @@ func (o *Orchestrator) recordRebuild(name, typ string, fields map[string]any) {
 	if d, ok := fields["duration_ms"].(int64); ok {
 		st.duration = d
 	}
+}
+
+// checkPorts warns about local ports the stack waits on (tcp and http
+// readiness checks) that something else already holds, naming the holder.
+func (o *Orchestrator) checkPorts() {
+	o.portHolders = map[string][]string{}
+	for _, name := range o.order {
+		p := o.procs[name]
+		for _, port := range localPorts(p.cfg) {
+			if ports.Free(port) {
+				continue
+			}
+			who := ports.Holder(port)
+			if who == "" {
+				who = "another process"
+			}
+			msg := fmt.Sprintf("port %d (which %s waits for) was already in use by %s before the stack started", port, name, who)
+			o.portHolders[name] = append(o.portHolders[name], msg)
+			o.ev.Emit("port_in_use", name, map[string]any{"port": port, "holder": who})
+			o.notice(color.New(color.FgYellow), "warning: "+msg)
+		}
+	}
+}
+
+// localPorts are the local ports a process's tcp and http readiness checks
+// point at.
+func localPorts(cfg config.Process) []int {
+	var out []int
+	if cfg.Readiness == nil {
+		return out
+	}
+	for _, c := range cfg.Readiness.Checks {
+		addr := c.TCP
+		if c.HTTP != "" {
+			if u, err := url.Parse(c.HTTP); err == nil {
+				addr = u.Host
+				if u.Port() == "" {
+					continue
+				}
+			}
+		}
+		if addr == "" {
+			continue
+		}
+		host, portStr, err := net.SplitHostPort(addr)
+		if err != nil {
+			continue
+		}
+		if host != "localhost" && host != "127.0.0.1" && host != "0.0.0.0" && host != "::1" && host != "" {
+			continue
+		}
+		if n, err := strconv.Atoi(portStr); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
 }

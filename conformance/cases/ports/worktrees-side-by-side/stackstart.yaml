@@ -1,0 +1,9 @@
+profiles:
+  p:
+    ports: {web: ${PORT_web}}
+    processes:
+      web:
+        cmd: |-
+          exec perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalAddr=>q(127.0.0.1),LocalPort=>$ARGV[0],Listen=>5,ReuseAddr=>1) or die $!; while($c=$s->accept){ <$c>; print $c qq(HTTP/1.0 200 OK\r\n\r\nport $ARGV[0]); close $c }' ${port.web} ${TOKEN}
+        env: {WEB_URL: "http://127.0.0.1:${port.web}"}
+        readiness: {timeout: 10s, checks: [{tcp: "127.0.0.1:${port.web}"}]}

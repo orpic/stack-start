@@ -500,6 +500,9 @@ func (o *Orchestrator) printFailure(p *proc, cause error) {
 			fmt.Fprintf(&b, "  %s\n", line)
 		}
 	}
+	for _, h := range o.portHolders[p.name] {
+		fmt.Fprintf(&b, "Note: %s\n", h)
+	}
 	fmt.Fprintf(&b, "Full log: %s\n", filepath.Join(o.runDir, p.name+".log"))
 	fmt.Fprintf(&b, "Read it later with: stackstart logs %s\n", p.name)
 	o.consoleMu.Lock()
