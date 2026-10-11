@@ -120,6 +120,25 @@ func globRegexp(glob string) (*regexp.Regexp, error) {
 	return regexp.Compile(b.String())
 }
 
+// resolvedEnvBlock is the final value of every variable a process's env:
+// block sets (captured values and ports included), for the inputs hash.
+func resolvedEnvBlock(block map[string]string, env []string) string {
+	keys := make([]string, 0, len(block))
+	for k := range block {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		for _, kv := range env {
+			if strings.HasPrefix(kv, k+"=") {
+				b.WriteString(kv + "\x00")
+			}
+		}
+	}
+	return b.String()
+}
+
 func (o *Orchestrator) cachePath(name string) string {
 	return filepath.Join(session.SessionDir(o.slug), "cache", name+".inputs")
 }

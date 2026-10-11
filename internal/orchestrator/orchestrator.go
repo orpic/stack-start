@@ -108,6 +108,8 @@ type proc struct {
 	// healthCancel stops the current instance's health checks.
 	healthCancel context.CancelFunc
 	healthFails  int
+	// retiring: an old instance is still being stopped (failure or retry).
+	retiring bool
 
 	logPath string
 	rawPath string
@@ -152,6 +154,7 @@ type Orchestrator struct {
 	done       chan struct{} // closed when the run is over
 
 	stopping atomic.Bool // set once the stack has started to shut down
+	forced   atomic.Bool // ForceKill was called
 
 	// portHolders: process -> "port N is in use by pid X (cmd)" found
 	// before the start; shown if the process fails.
@@ -324,6 +327,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			o.check()
 		}
 	}
+	if o.forced.Load() {
+		return ErrForceKilled
+	}
 	return o.result
 }
 
@@ -334,6 +340,7 @@ func (o *Orchestrator) Stopping() bool { return o.stopping.Load() }
 // ForceKill immediately SIGKILLs every process group. Safe to call from a
 // signal handler while Run is in progress.
 func (o *Orchestrator) ForceKill() {
+	o.forced.Store(true)
 	o.procMu.Lock()
 	sups := make([]*supervisor.Supervisor, 0, len(o.procs))
 	for _, p := range o.procs {

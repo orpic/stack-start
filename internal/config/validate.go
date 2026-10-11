@@ -133,7 +133,7 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 	}
 
 	if proc.Readiness != nil {
-		if err := validateReadiness(name, proc.Readiness, proc.IsOneshot(), proc.Captures); err != nil {
+		if err := validateReadiness(name, proc.Readiness, proc.IsOneshot() || proc.Kind == "daemon", proc.Captures); err != nil {
 			return err
 		}
 	}

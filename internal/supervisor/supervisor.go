@@ -111,6 +111,11 @@ type Supervisor struct {
 
 	daemonPID      atomic.Int64
 	daemonLogStart int64
+	// stopReq is set when a daemon is asked to stop, possibly before its
+	// PID is known; launcherDone closes when its launcher has exited.
+	stopReq      atomic.Bool
+	stopGrace    atomic.Int64
+	launcherDone chan struct{}
 }
 
 // Start spawns the child process under a PTY and starts reading its output,
@@ -152,6 +157,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	s.pid.Store(int64(s.cmd.Process.Pid))
 	s.done = make(chan struct{})
 	s.pumpDone = make(chan struct{})
+	s.launcherDone = make(chan struct{})
 
 	s.emitEvent(StateStarting, nil)
 
@@ -391,6 +397,7 @@ func (s *Supervisor) fail(err error) {
 
 func (s *Supervisor) waitLoop() {
 	err := s.cmd.Wait()
+	close(s.launcherDone)
 
 	// The PTY delivers buffered output after the process exits; read it all
 	// before deciding the outcome. Grandchildren can hold the PTY open, so
@@ -626,8 +633,24 @@ func (s *Supervisor) Stop(grace time.Duration) {
 	if !s.Alive() {
 		return
 	}
-	if s.daemonPID.Load() != 0 {
-		s.stopDaemon(grace)
+	if s.isDaemon() {
+		s.stopGrace.Store(int64(grace))
+		s.stopReq.Store(true)
+		if s.daemonPID.Load() != 0 {
+			s.stopDaemon(grace)
+			return
+		}
+		// Still starting: stop the launcher if it runs; the daemon watcher
+		// stops the daemon once its pidfile names it.
+		select {
+		case <-s.launcherDone:
+		default:
+			GracefulStop(s.PID(), grace, s.launcherDone)
+		}
+		select {
+		case <-s.done:
+		case <-time.After(grace + 5*time.Second):
+		}
 		return
 	}
 	GracefulStop(s.PID(), grace, s.done)

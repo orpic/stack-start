@@ -1,0 +1,7 @@
+profiles:
+  p:
+    ports: {web: ${PORT_web}}
+    processes:
+      web:
+        cmd: |-
+          echo on ${port.web}; exec perl -e 'sleep 300' ${TOKEN}

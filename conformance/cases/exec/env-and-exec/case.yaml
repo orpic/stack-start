@@ -22,6 +22,9 @@ steps:
     expect: {stdout_equals: "https://t.example.com envrc s3cr3t\n${WORK}/sub\n"}
   - run: exec app -- sh -c 'exit 7'
     expect: {exit: 7}
+  # Ctrl-C must reach the command: it must not inherit SIGINT as ignored.
+  - run: "exec app -- perl -e 'print((defined $SIG{INT} && $SIG{INT} eq q(IGNORE)) ? qq(ignored\\n) : qq(default\\n))'"
+    expect: {stdout_equals: "default\n"}
   - run: exec app sh
     expect: {exit: 2, stderr_contains: "usage: stackstart exec <process> -- <command>"}
   - run: down

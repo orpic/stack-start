@@ -17,15 +17,17 @@ type StatusDoc struct {
 
 // SessionStatus is one running (or just finished) stack.
 type SessionStatus struct {
-	Profile       string          `json:"profile"`
-	Project       string          `json:"project"`
-	ConfigFile    string          `json:"config_file"`
-	RunID         string          `json:"run_id"`
-	StackstartPID int             `json:"stackstart_pid"`
-	Detached      bool            `json:"detached"`
-	KeepGoing     bool            `json:"keep_going"`
-	StartedAt     time.Time       `json:"started_at"`
-	State         string          `json:"state"`
+	Profile       string    `json:"profile"`
+	Project       string    `json:"project"`
+	ConfigFile    string    `json:"config_file"`
+	RunID         string    `json:"run_id"`
+	StackstartPID int       `json:"stackstart_pid"`
+	Detached      bool      `json:"detached"`
+	KeepGoing     bool      `json:"keep_going"`
+	StartedAt     time.Time `json:"started_at"`
+	State         string    `json:"state"`
+	// Ready: every process is ready (or done, or an optional failure).
+	Ready         bool            `json:"ready"`
 	LogDir        string          `json:"log_dir"`
 	ConsoleLog    string          `json:"console_log,omitempty"`
 	Events        EventsInfo      `json:"events"`

@@ -19,6 +19,7 @@ import (
 	"github.com/orpic/stack-start/internal/events"
 	"github.com/orpic/stack-start/internal/interpolate"
 	"github.com/orpic/stack-start/internal/session"
+	"github.com/orpic/stack-start/internal/supervisor"
 )
 
 // command is a request handed from a connection to the loop.
@@ -34,6 +35,7 @@ type cmdReply struct {
 	targets   []string
 	logPath   string
 	logOffset int64
+	sup       *supervisor.Supervisor
 }
 
 func (o *Orchestrator) listen() error {
@@ -124,6 +126,12 @@ func (o *Orchestrator) handleCommand(c *command) {
 				Hint:    "use 'stackstart restart " + p.name + "' to restart it"}})
 			return
 		}
+		if p.retiring {
+			reply(cmdReply{err: &control.Error{Code: control.CodeConflict, Process: p.name,
+				Message: fmt.Sprintf("process %s is still stopping its previous instance", p.name),
+				Hint:    "try again in a moment, or 'stackstart wait " + p.name + " --for exit'"}})
+			return
+		}
 		if p.state == sBlocked {
 			root := p.blockedBy
 			reply(cmdReply{err: &control.Error{Code: control.CodeConflict, Process: p.name,
@@ -166,12 +174,10 @@ func (o *Orchestrator) handleCommand(c *command) {
 		if st, err := os.Stat(p.logPath); err == nil {
 			off = st.Size()
 		}
-		if _, err := p.sup.Write([]byte(req.Data)); err != nil {
-			reply(cmdReply{err: &control.Error{Code: control.CodeFailed, Process: p.name, Message: err.Error()}})
-			return
-		}
 		o.ev.Emit("input_sent", p.name, map[string]any{"bytes": len(req.Data)})
-		reply(cmdReply{logPath: p.logPath, logOffset: off})
+		// The write happens in the connection's goroutine: a process that
+		// doesn't read its terminal must not block the loop.
+		reply(cmdReply{logPath: p.logPath, logOffset: off, sup: p.sup})
 	default:
 		reply(cmdReply{err: &control.Error{Code: control.CodeInvalid, Message: "unknown op " + strconv.Quote(req.Op)}})
 	}
@@ -218,6 +224,22 @@ func (o *Orchestrator) handleConn(conn net.Conn) {
 		r := o.ask(req)
 		if r.err != nil {
 			_ = w.Fail(r.err)
+			return
+		}
+		written := make(chan error, 1)
+		go func() {
+			_, err := r.sup.Write([]byte(req.Data))
+			written <- err
+		}()
+		select {
+		case err := <-written:
+			if err != nil {
+				_ = w.Fail(&control.Error{Code: control.CodeFailed, Process: req.Process, Message: err.Error()})
+				return
+			}
+		case <-time.After(5 * time.Second):
+			_ = w.Fail(&control.Error{Code: control.CodeTimeout, Process: req.Process,
+				Message: fmt.Sprintf("process %s is not reading its input", req.Process)})
 			return
 		}
 		echo := time.Duration(req.EchoMS) * time.Millisecond
@@ -427,13 +449,30 @@ func (o *Orchestrator) waitFor(w *control.Writer, req control.Request, timeout t
 			return
 		}
 	}
+	if req.Process == "" && cond == "ready" {
+		r := o.ask(control.Request{Op: "status"})
+		if r.err != nil {
+			_ = w.Fail(r.err)
+			return
+		}
+		st := r.result.(control.SessionStatus)
+		if st.Ready && req.After == 0 {
+			_ = w.OK(map[string]any{"state": "ready", "seq": st.Events.LastSeq})
+			return
+		}
+		if after == 0 {
+			after = st.Events.LastSeq
+		}
+	}
 	match := func(e events.Event) bool {
 		if req.Process != "" && e.Process != req.Process {
 			return false
 		}
 		switch {
+		case cond == "ready" && req.Process == "":
+			return e.Type == "stack_ready"
 		case cond == "ready":
-			return e.Type == "process_ready" || (req.Process == "" && e.Type == "stack_ready")
+			return e.Type == "process_ready"
 		case cond == "exit":
 			return e.Type == "process_exited" || e.Type == "process_stopped" || e.Type == "process_failed"
 		case cond == "rebuilt":
@@ -503,6 +542,7 @@ func (o *Orchestrator) snapshot() control.SessionStatus {
 	if o.rec.Stopping {
 		st.State = "stopping"
 	}
+	st.Ready = o.allReady
 	caps := o.registry.Snapshot()
 	for _, name := range o.order {
 		p := o.procs[name]

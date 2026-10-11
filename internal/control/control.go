@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/orpic/stack-start/internal/events"
@@ -82,12 +83,22 @@ func SocketPath(sessionDir, slug string) (string, error) {
 		return p, nil
 	}
 	dir := filepath.Join("/tmp", fmt.Sprintf("stackstart-%d", os.Getuid()))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
 		return "", err
 	}
-	if st, err := os.Lstat(dir); err != nil || !st.IsDir() || st.Mode().Perm() != 0o700 {
-		if err == nil {
-			_ = os.Chmod(dir, 0o700)
+	// Anyone can create names in /tmp: only use a directory that is ours,
+	// private, and not a symlink.
+	st, err := os.Lstat(dir)
+	if err != nil {
+		return "", err
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 || !ok || int(sys.Uid) != os.Getuid() {
+		return "", fmt.Errorf("%s is not a directory owned by you; remove it, or use a shorter state directory (XDG_STATE_HOME)", dir)
+	}
+	if st.Mode().Perm() != 0o700 {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return "", err
 		}
 	}
 	sum := sha256.Sum256([]byte(slug + "\x00" + sessionDir))

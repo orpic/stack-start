@@ -11,3 +11,8 @@ steps:
   - signal: {id: up, sig: INT}
   - wait_exit: {id: up, exit: 130, timeout: 5s}
   - process: {matches: "${TOKEN}", absent: true, timeout: 2s}
+  # The run still records how it ended, and leaves no session behind.
+  - run: status
+    expect: {stdout_equals: "No running stackstart sessions.\n"}
+  - run: events --type run_finished
+    expect: {stdout_contains: "run_finished - outcome=stopped"}

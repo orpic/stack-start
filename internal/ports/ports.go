@@ -6,6 +6,7 @@ package ports
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -100,12 +101,16 @@ func claimed(sessionsDir, self string) map[int]bool {
 	return taken
 }
 
-// Free reports whether nothing listens on port (on any local address).
+// Free reports whether nothing listens on port, on IPv4 or IPv6. An
+// address family the machine doesn't have does not count as busy.
 func Free(port int) bool {
-	for _, addr := range []string{"127.0.0.1", "0.0.0.0"} {
+	for _, addr := range []string{"127.0.0.1", "0.0.0.0", "::1", "::"} {
 		ln, err := net.Listen("tcp", net.JoinHostPort(addr, strconv.Itoa(port)))
 		if err != nil {
-			return false
+			if errors.Is(err, syscall.EADDRINUSE) {
+				return false
+			}
+			continue
 		}
 		_ = ln.Close()
 	}

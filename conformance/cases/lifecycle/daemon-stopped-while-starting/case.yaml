@@ -1,0 +1,10 @@
+name: a daemon stopped while it is still starting is not left running
+roadmap: "3.6"
+covers: [daemonize]
+steps:
+  - run: up p -d --no-wait
+    timeout: 10s
+  - run: down
+    timeout: 30s
+  - sleep: {duration: 2500ms, reason: "the daemon would write its pidfile 1.5s after launch"}
+  - process: {matches: "^slow-daemon-${TOKEN}", absent: true, timeout: 5s}

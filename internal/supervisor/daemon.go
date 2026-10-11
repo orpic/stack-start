@@ -58,7 +58,17 @@ func (s *Supervisor) watchDaemon() error {
 	}
 	pidfile := s.path(s.Proc.Pidfile)
 	var pid int
+	var stopDeadline time.Time
 	for {
+		// Asked to stop before the daemon showed up: look a little longer
+		// so a late daemon is still stopped, then give up.
+		if s.stopReq.Load() {
+			if stopDeadline.IsZero() {
+				stopDeadline = time.Now().Add(3 * time.Second)
+			} else if time.Now().After(stopDeadline) {
+				return fmt.Errorf("stopped before the daemon started")
+			}
+		}
 		if data, err := os.ReadFile(pidfile); err == nil {
 			first := strings.TrimSpace(strings.SplitN(string(data), "\n", 2)[0])
 			if n, err := strconv.Atoi(first); err == nil && n > 0 && syscall.Kill(n, 0) == nil {
@@ -74,6 +84,9 @@ func (s *Supervisor) watchDaemon() error {
 	s.pid.Store(int64(pid))
 	s.daemonPID.Store(int64(pid))
 	s.notify("daemon_started", map[string]any{"pid": pid})
+	if s.stopReq.Load() {
+		go s.stopDaemon(time.Duration(s.stopGrace.Load()))
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

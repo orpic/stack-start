@@ -100,7 +100,7 @@ func (o *Orchestrator) startProcess(p *proc) {
 		if p.cfg.Cwd != "" {
 			cwd = filepath.Join(cwd, p.cfg.Cwd)
 		}
-		hash, n, err := inputsHash(cwd, resolvedCmd, p.cfg.Inputs)
+		hash, n, err := inputsHash(cwd, resolvedCmd+"\x00"+resolvedEnvBlock(p.cfg.Env, processEnv), p.cfg.Inputs)
 		if err != nil {
 			o.onFailure(p, fmt.Errorf("process %s: %w", p.name, err), nil)
 			return
@@ -152,14 +152,16 @@ func (o *Orchestrator) startProcess(p *proc) {
 			o.ev.Emit(typ, name, fields)
 		},
 	}
-	o.procMu.Lock()
-	p.sup = sup
-	o.procMu.Unlock()
 	o.setState(p, sStarting)
 	p.startedAt = time.Now()
 	p.readyAt = time.Time{}
 	o.logger.Info("starting process", "process", p.name, "cmd", resolvedCmd, "attempt", p.attempt+1)
-	if err := sup.Start(context.Background()); err != nil {
+	err = sup.Start(context.Background())
+	// Published only once started: ForceKill reads it from another goroutine.
+	o.procMu.Lock()
+	p.sup = sup
+	o.procMu.Unlock()
+	if err != nil {
 		// Start reports the failure as an event too; nothing more to do.
 		o.logger.Error("start failed", "process", p.name, "error", err)
 	}
@@ -367,7 +369,13 @@ func (o *Orchestrator) retire(p *proc, then func()) {
 		return
 	}
 	grace := p.cfg.GracePeriod()
-	id := o.newPlan(then)
+	p.retiring = true
+	id := o.newPlan(func() {
+		p.retiring = false
+		if then != nil {
+			then()
+		}
+	})
 	go func() {
 		sup.Stop(grace)
 		o.stopDone <- id

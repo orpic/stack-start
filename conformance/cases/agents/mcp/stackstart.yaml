@@ -10,3 +10,7 @@ profiles:
           echo api says hello; exec perl -e 'sleep 300' a-${TOKEN}
         depends_on: [tunnel]
         env: {URL: "${tunnel.url}"}
+      plain:
+        cmd: |-
+          exec perl -e 'sleep 300' p-${TOKEN}
+        env: {PLAIN: set-in-config}

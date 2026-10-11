@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -207,7 +208,8 @@ func mcpTools() []mcpTool {
 				"timeout": "string: kill it after this long (default 5m)",
 			})),
 			args: func(a map[string]any) ([]string, time.Duration, error) {
-				return withProfile(a, []string{"exec", str(a, "process"), "--", "/bin/sh", "-c", str(a, "command")}), dur(a, "timeout", 5*time.Minute), nil
+				args := withProfile(a, []string{"exec", str(a, "process")})
+				return append(args, "--", "/bin/sh", "-c", str(a, "command")), dur(a, "timeout", 5*time.Minute), nil
 			}},
 		{Name: "env", Description: "A process's environment and which layer set each variable (shell, default, .envrc, .env, env). Secrets are ***.",
 			InputSchema: schema([]string{"process"}, props(map[string]string{"process": "string: process name"})),
@@ -365,6 +367,11 @@ func runTool(t mcpTool, a map[string]any) map[string]any {
 	if dir := str(a, "cwd"); dir != "" {
 		c.Dir = dir
 	}
+	// On timeout kill the whole group (exec's command and its children),
+	// and don't wait for pipes that grandchildren might still hold open.
+	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	c.Cancel = func() error { return syscall.Kill(-c.Process.Pid, syscall.SIGKILL) }
+	c.WaitDelay = 2 * time.Second
 	var stdout, stderr bytes.Buffer
 	c.Stdout, c.Stderr = &stdout, &stderr
 	c.Stdin = nil

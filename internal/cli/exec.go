@@ -181,7 +181,15 @@ The command's exit code is stackstart's exit code.`,
 			c := exec.Command(name, args[2:]...)
 			c.Env, c.Dir = envList, r.Cwd
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-			signal.Ignore(syscall.SIGINT, syscall.SIGQUIT)
+			// The command gets Ctrl-C from the terminal itself; stackstart
+			// just must not die first. Catch (not ignore) the signals, so
+			// the command does not inherit them as ignored.
+			sigs := make(chan os.Signal, 4)
+			signal.Notify(sigs, syscall.SIGINT, syscall.SIGQUIT)
+			go func() {
+				for range sigs {
+				}
+			}()
 			if err := c.Run(); err != nil {
 				var ee *exec.ExitError
 				if errors.As(err, &ee) {

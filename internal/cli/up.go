@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -129,16 +130,14 @@ run 'stackstart start <process>'.`,
 				// Already stopping (down, or a failure): this signal is the
 				// second one.
 				if orc.Stopping() {
-					orc.ForceKill()
-					os.Exit(130)
+					forceExit(orc)
 				}
 				if !quiet && !child {
 					fmt.Fprintln(os.Stderr, "\nstackstart: stopping all processes (Ctrl-C again to kill immediately)")
 				}
 				cancel()
 				<-sigCh
-				orc.ForceKill()
-				os.Exit(130)
+				forceExit(orc)
 			}()
 
 			if err := orc.Run(ctx); err != nil {
@@ -165,6 +164,13 @@ run 'stackstart start <process>'.`,
 	cmd.Flags().Bool("detached-child", false, "internal: run as the background stack")
 	_ = cmd.Flags().MarkHidden("detached-child")
 	return cmd
+}
+
+// forceExit kills every process and lets the run record how it ended
+// (events, run.json, session record); if that hangs, it exits anyway.
+func forceExit(orc *orchestrator.Orchestrator) {
+	orc.ForceKill()
+	time.AfterFunc(5*time.Second, func() { os.Exit(exitInterrupted) })
 }
 
 func resolveProfile(name string) (config.Profile, string, error) {
@@ -237,7 +243,7 @@ func upDetached(name string, profile config.Profile, keepGoing, noWait bool, tim
 	bootFailure := func() error {
 		// A stack that failed this fast: report the failure from its
 		// event log, like the foreground would.
-		if e := lastRunFailure(slug); e != nil {
+		if e := lastRunFailure(slug, c.Process.Pid); e != nil {
 			printFailedEvent(*e)
 			return exitError{code: exitFailed}
 		}
@@ -366,12 +372,17 @@ func printFailedEvent(e events.Event) {
 
 // lastRunFailure returns the required-process failure recorded in the
 // newest run of a session, if any.
-func lastRunFailure(slug string) *events.Event {
+func lastRunFailure(slug string, pid int) *events.Event {
 	entries, err := os.ReadDir(session.RunsDir(slug))
 	if err != nil || len(entries) == 0 {
 		return nil
 	}
+	// Run ids end with the PID of the stackstart that ran them: only a run
+	// of this child counts (it may have failed before creating one).
 	newest := entries[len(entries)-1].Name()
+	if !strings.HasSuffix(newest, "-"+strconv.Itoa(pid)) {
+		return nil
+	}
 	evs, err := events.ReadFile(filepath.Join(session.RunsDir(slug), newest, "events.jsonl"))
 	if err != nil {
 		return nil

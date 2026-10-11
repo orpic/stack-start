@@ -1,0 +1,13 @@
+name: wait without a process waits for the whole stack, and returns at once when it is already up
+roadmap: "2.4"
+steps:
+  - run: up p -d --no-wait
+    timeout: 10s
+  - run: wait --timeout 20s
+    expect: {stdout_contains: "stack_ready"}
+  - run: status --json
+    expect: {stdout_json: {"sessions[0].ready": true, "sessions[0].processes[name=slow].state": ready}}
+  - run: wait --timeout 2s
+    expect: {stdout_contains: "is ready"}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}
