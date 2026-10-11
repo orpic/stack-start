@@ -235,7 +235,18 @@ All black-box, added to `conformance/` with the contract updated first.
 - Projects: `projects/composite/restart-phoenix` (the acceptance criterion above), `projects/composite/bad-migration-keep-going`, `projects/phoenix_app/iex-send-recompile`.
 - Runner: needs a `json` assertion (`stdout_json: {path: "$.processes[?(@.name=='phoenix')].pid", saves: PHX_PID}`) or a simpler `jq`-style `sh` step. **Q6**: prefer a runner step (portable) over requiring `jq` on CI machines.
 
-## 9. Open questions for the owner
+## 9. Decisions (owner, 2026-10-11)
+
+- **Q1** `stop <p>` and `restart <p>` **also stop the processes that depend on it** (dependents first). After `start`/`restart`, dependents are started again once the process is ready.
+- **Q2** Dependents of a restarted process restart **only if a capture they reference changed value**; `on_dep_restart: ignore` opts out. (When the process is restarted, its dependents were stopped by Q1 and simply come back with the new values.)
+- **Q3** `status --json` is an object: `{"schema": 1, "sessions": [...]}`.
+- **Q4** Values are shown as-is; files are 0600; `secret: true` on a capture or env var shows `***`.
+- **Q5** `logs` follows only when stdout is a terminal; `--follow` / `--no-follow` force either.
+- **Q6** JSON assertions are a runner step.
+- **Q7** Windows stays out of scope.
+- Phase 4: ports are auto-allocated port variables. Phase 5: `init --agents` prints a snippet and never edits files. Phase 6: the TUI is skipped and the licence is left to the owner.
+
+## 10. Original open questions
 
 - **Q1** `stop <p>` while dependents run: leave them running (simplest; they may error) or stop dependents too (safer; `--only` to opt out)? Proposal: leave them, mark them `degraded`, and print which ones depend on it.
 - **Q2** `on_dep_restart` default `ignore` (nothing restarts unexpectedly) or `restart`-if-captures-changed (most correct for tunnels)? Proposal: `restart` only when a referenced capture changed; that is never a surprise because without a change nothing happens.
