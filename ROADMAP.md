@@ -246,7 +246,7 @@ Acceptance for Phase 1 is measured on test projects: in `fullstack-offline`, `re
 | 4.1 | Port variables (`${port.phoenix}`) allocated per session, or a fixed `port_offset` per worktree. Ports appear in `status --json`. |
 | 4.2 | `status --all` across worktrees, and a port-clash check before `up` that names who holds the port. |
 
-## Phase 5 — agent integration
+## Phase 5 — agent integration (done 2026-10-11)
 
 | # | Feature |
 | --- | --- |
@@ -255,7 +255,7 @@ Acceptance for Phase 1 is measured on test projects: in `fullstack-offline`, `re
 | 5.3 | `stackstart mcp`: an MCP server exposing status, restart, wait, logs, exec, send and events as typed tools. Works with any MCP client. |
 | 5.4 | `init --agents` writes a stackstart section into `AGENTS.md`/`CLAUDE.md`: which commands are safe to run, and that env comes from `stackstart exec`, never from sourcing `.envrc`. |
 
-## Phase 6 — adoption
+## Phase 6 — adoption (owner decisions 2026-10-11: the TUI is skipped; the licence is left to the owner)
 
 - An open-source licence. LICENSE is proprietary while the Homebrew cask declares `license: "MIT"`.
 - A TUI built on the event log.

@@ -85,6 +85,8 @@ jobs:
           echo "$(ls -d /usr/lib/postgresql/*/bin | tail -1)" >> "$GITHUB_PATH"
       - name: Pull images used by Docker cases
         run: docker pull postgres:16
+      - name: Python packages for the schema case
+        run: python3 -m pip install jsonschema pyyaml
       - name: Build stackstart and the runner
         run: |
           mkdir -p tmp

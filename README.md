@@ -231,7 +231,16 @@ stackstart wait api --for event:process_ready --after 42 --timeout 60s
 stackstart down
 ```
 
-See [ROADMAP.md](ROADMAP.md) for what's next.
+### With agents (Claude Code, Codex, Cursor, …)
+
+```bash
+stackstart init --agents >> AGENTS.md          # tells agents to use stackstart (prints; edits nothing)
+claude mcp add stackstart -- stackstart mcp    # or {"command": "stackstart", "args": ["mcp"]} in any MCP client
+stackstart describe dev --json                 # the profile as data: processes, start order, checks
+stackstart schema > stackstart.schema.json     # JSON Schema for editors and validators
+```
+
+The MCP server's tools (status, up, down, restart, start, stop, logs, wait, events, exec, env, send, describe, list_profiles) run the same CLI, so they behave identically.
 
 ## Testing
 

@@ -1,0 +1,7 @@
+name: init --agents prints a section for AGENTS.md and touches no file
+roadmap: "5.4"
+steps:
+  - run: init --agents
+    expect:
+      stdout_contains: ["## Local stack (stackstart)", "stackstart up <profile> -d", "stackstart exec <process> -- <command>", "Never source .envrc by hand", "stackstart mcp"]
+  - sh: test ! -e stackstart.yaml && test ! -e AGENTS.md && test ! -e CLAUDE.md

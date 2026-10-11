@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/orpic/stack-start/main/internal/cli/schema/stackstart.schema.json",
+  "title": "stackstart.yaml",
+  "description": "Configuration for stackstart: profiles of processes started in dependency order. See conformance/CONTRACT.md.",
+  "type": "object",
+  "required": ["profiles"],
+  "additionalProperties": false,
+  "properties": {
+    "profiles": {
+      "type": "object",
+      "description": "Named profiles, e.g. dev, setup.",
+      "additionalProperties": { "$ref": "#/$defs/profile" }
+    }
+  },
+  "$defs": {
+    "duration": {
+      "type": "string",
+      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
+      "description": "A Go duration: 500ms, 30s, 2m, 1m30s."
+    },
+    "profile": {
+      "type": "object",
+      "required": ["processes"],
+      "additionalProperties": false,
+      "properties": {
+        "project_path": { "type": "string", "description": "Absolute project path; default: the directory holding the file." },
+        "ports": {
+          "type": "object",
+          "description": "Port variables (name: default). Use as ${port.<name>}; each running stack gets a free one.",
+          "propertyNames": { "pattern": "^[A-Za-z0-9_-]+$" },
+          "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "processes": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/process" }
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "log": { "type": "string", "description": "Regex (RE2) a line of plain output must match." },
+        "tcp": { "type": "string", "description": "host:port that must accept a connection." },
+        "capture": { "type": "string", "description": "A capture of this process that must have a value." },
+        "http": { "type": "string", "format": "uri", "description": "URL whose GET must answer 2xx/3xx (or status)." },
+        "status": { "type": "integer", "description": "Exact HTTP status for an http check." },
+        "exec": { "type": "string", "description": "Shell command that must exit 0, e.g. pg_isready." },
+        "file": { "type": "string", "description": "Path (relative to cwd) that must exist." }
+      }
+    },
+    "process": {
+      "type": "object",
+      "required": ["cmd"],
+      "additionalProperties": false,
+      "properties": {
+        "cmd": { "type": "string", "description": "Shell command, run with /bin/sh -c on a terminal. ${process.capture}, ${envrc.KEY}, ${port.name}; $$ is a literal $." },
+        "cwd": { "type": "string", "description": "Relative to the project path." },
+        "kind": { "enum": ["long-running", "oneshot", "daemon"], "default": "long-running" },
+        "depends_on": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "secret_env": { "type": "array", "items": { "type": "string" }, "description": "Env variables shown as *** in env and status." },
+        "readiness": {
+          "type": "object",
+          "required": ["timeout"],
+          "additionalProperties": false,
+          "properties": {
+            "timeout": { "$ref": "#/$defs/duration" },
+            "mode": { "enum": ["all", "any"], "default": "all" },
+            "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } }
+          }
+        },
+        "captures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "log"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "log": { "type": "string", "description": "Regex with exactly one capturing group." },
+              "required": { "type": "boolean", "default": true },
+              "secret": { "type": "boolean", "default": false }
+            }
+          }
+        },
+        "fail_on": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Regexes that fail the process before it is ready (a warning after)." },
+        "templates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["src", "dst"],
+            "additionalProperties": false,
+            "properties": { "src": { "type": "string" }, "dst": { "type": "string" } }
+          }
+        },
+        "on_exit": { "enum": ["fail", "ignore"], "default": "fail" },
+        "required": { "type": "boolean", "default": true },
+        "stop_grace_period": { "$ref": "#/$defs/duration" },
+        "restart": { "enum": ["never", "on-failure", "always"], "default": "never" },
+        "retries": { "type": "integer", "minimum": 0, "description": "Failed attempts in a row before failed; 0 = no limit." },
+        "backoff": { "type": "string", "pattern": "^[^.]+(\\.\\.[^.]+)?$", "description": "<duration> or <min>..<max>; default 1s..30s." },
+        "on_dep_restart": { "enum": ["restart", "ignore"], "default": "restart" },
+        "signals": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "preset": { "enum": ["django", "esbuild", "next", "node-watch", "nodemon", "phoenix", "rails", "tailwind", "tsc", "tsx", "uvicorn", "vite", "webpack"] },
+            "rebuilding": { "type": "string" },
+            "rebuilt": { "type": "string" },
+            "rebuild_failed": { "type": "string" }
+          }
+        },
+        "health": {
+          "type": "object",
+          "required": ["checks"],
+          "additionalProperties": false,
+          "properties": {
+            "interval": { "$ref": "#/$defs/duration" },
+            "timeout": { "$ref": "#/$defs/duration" },
+            "failures": { "type": "integer", "minimum": 0 },
+            "checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/check" } }
+          }
+        },
+        "inputs": { "type": "array", "items": { "type": "string" }, "description": "Oneshots: globs; skipped when unchanged since the last success." },
+        "pidfile": { "type": "string", "description": "Daemons: file with the daemon's PID." },
+        "stop_cmd": { "type": "string", "description": "Daemons: command that stops it." },
+        "log_file": { "type": "string", "description": "Daemons: its own log, followed into stackstart's." }
+      }
+    }
+  }
+}

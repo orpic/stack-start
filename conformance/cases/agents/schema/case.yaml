@@ -1,0 +1,6 @@
+name: schema prints the JSON Schema of stackstart.yaml
+roadmap: "5.2"
+steps:
+  - run: schema
+    expect:
+      stdout_json: {title: stackstart.yaml, "$defs.process.properties.kind.enum[2]": daemon, "$defs.process.properties.signals.properties.preset.enum[5]": phoenix}

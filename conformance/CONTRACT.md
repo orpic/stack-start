@@ -29,6 +29,10 @@ Notation: `<x>` is a variable part. `…` is free text. Strings are exact unless
 | `stackstart events` | `--after <seq>`, `--follow`, `--json`, `--type <t>` (repeatable), `--process <p>`, `--profile` | with `--follow` |
 | `stackstart env <process>` | `--profile`, `--explain`, `--json`, `--show-secrets` | no |
 | `stackstart exec <process> -- <cmd> [args]` | `--profile` | until the command exits (its exit code) |
+| `stackstart describe <profile>` | `--json` | no |
+| `stackstart schema` | | no |
+| `stackstart mcp` | | serves until stdin closes |
+| `stackstart init --agents` | | no |
 | `stackstart wait [process]` | `--for ready\|exit\|rebuilt\|event:<type>`, `--after <seq>`, `--timeout <d>` (5m), `--json`, `--profile` | until the condition or the timeout |
 | `stackstart logs <process>` | `--profile <name>`, `--lines <n>`, `--follow`, `--no-follow`, `--since <d or time>`, `--grep <re>`, `-i`, `--run latest\|prev\|<id>` | follows only on a live stack with stdout on a terminal, or with `--follow` |
 | `stackstart clean` | `--all`, `--dry-run` | no |
@@ -337,3 +341,13 @@ Unknown process for any of these: exit 1, `process "<p>" not found in profile "<
 **Port clashes.** Before starting, every local port a process's `tcp:` or `http:` readiness check points at is tested. One already in use gives a warning on stderr, `stackstart: warning: port <n> (which <p> waits for) was already in use by <holder> before the stack started` (holder: `pid <pid> (<command>)` when `lsof` is available, else `another process`), an event `port_in_use` (`port`, `holder`), and, if `<p>` then fails, a `Note: …` line with the same text in its FAILED block.
 
 **All sessions.** `status` inside a project shows that project's stacks; outside any (or with `--all`), every running stack.
+
+## 15. Agent integration
+
+**`describe <profile> [--json]`** explains a profile without running it. JSON (`schema: 1`): `profile`, `project`, `config_file`, `ports`, `start_order` (waves: processes in a wave start together once the previous waves are ready), `running`, `commands`, and per process (by name): `kind`, `cmd`, `cwd`, `depends_on`, `dependents`, `required`, `on_exit`, `readiness` (`timeout`, `mode`, `checks` as strings like `tcp 127.0.0.1:4555`), `captures` (`name`, `log`, `required`, `secret`), `uses` (captured values it references, `${p.c}`), `fail_on`, `restart` (`policy`, `retries`, `backoff`, `on_dep_restart`), `signal_preset` and resolved `signals`, `health`, `inputs`, `ports`, `env` (names only). Port variables are substituted with their defaults.
+
+**`schema`** prints the JSON Schema (draft 2020-12) of `stackstart.yaml`; every config in `test-projects/` validates against it, and unknown keys are rejected.
+
+**`mcp`** serves the Model Context Protocol over stdin/stdout (newline-delimited JSON-RPC 2.0): `initialize` (answers with the client's `protocolVersion`, `capabilities.tools`, `serverInfo.name` `stackstart`, and usage `instructions`), `ping`, `tools/list`, `tools/call`; notifications are ignored; unknown methods get error `-32601`. Tools: `status`, `list_profiles`, `describe`, `up`, `down`, `restart`, `stop`, `start`, `logs`, `wait`, `events`, `exec`, `env`, `send`; each takes an optional `cwd`. A tool runs the matching CLI command (with `--json` where it has one) and returns its stdout and stderr as one text content item, with `(exit N)` and `isError: true` when it failed.
+
+**`init --agents`** prints a "Local stack (stackstart)" section for `AGENTS.md` / `CLAUDE.md` and writes no file.
