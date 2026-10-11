@@ -4,7 +4,7 @@ steps:
   - run: validate nope
     expect: {exit: 2, stderr_contains: "no profile named \"nope\""}
   - run: up --bogus
-    expect: {exit: 2, stderr_contains: ["unknown flag: --bogus", "See 'stackstart up --help'."]}
+    expect: {exit: 2, stderr_contains: ["unknown flag: --bogus", "See 'stackstart up --help'"]}
   - run: up
     expect: {exit: 2, stderr_contains: "accepts 1 arg(s), received 0"}
   - run: down

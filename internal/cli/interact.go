@@ -297,6 +297,10 @@ wait for the rebuild that edit causes.`,
 			resp, err := call(rec, control.Request{Op: "wait", Process: process, For: forWhat, After: after, TimeoutMS: timeout.Milliseconds()},
 				timeout+5*time.Second, func(e events.Event) { last = e })
 			if err != nil {
+				// Show the event that ended the wait (e.g. rebuild_failed).
+				if last.Seq != 0 && !asJSON {
+					fmt.Println(formatEvent(last))
+				}
 				return err
 			}
 			var result struct {

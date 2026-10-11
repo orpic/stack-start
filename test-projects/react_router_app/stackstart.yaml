@@ -19,6 +19,7 @@ profiles:
         # Vite prints a Unicode banner ("➜  Local:") and hot-reloads modules
         # in place; a config change restarts the server.
         cmd: npm run dev -- --host 127.0.0.1 --port 5300 --strictPort
+        signals: {preset: vite}
         fail_on:
           - "Port 5300 is already in use"
         readiness:

@@ -44,6 +44,7 @@ profiles:
       phoenix:
         cmd: mix phx.server
         depends_on: [migrate]
+        signals: {preset: phoenix}
         env:
           DB_PORT: "5544"
           PORT: "4100"
@@ -66,6 +67,7 @@ profiles:
       phoenix:
         cmd: iex -S mix phx.server
         depends_on: [migrate]
+        signals: {preset: phoenix}
         env:
           DB_PORT: "5544"
           PORT: "4100"

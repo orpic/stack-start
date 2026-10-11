@@ -65,6 +65,7 @@ profiles:
         cwd: phoenix_app
         cmd: mix phx.server
         depends_on: [migrate, tunnel]
+        signals: {preset: phoenix}
         env:
           DB_PORT: "5545"
           DB_NAME: phoenix_app_composite
@@ -82,6 +83,7 @@ profiles:
         cwd: node_api
         cmd: npm run dev
         depends_on: [tunnel]
+        signals: {preset: tsx}
         env:
           PORT: "3110"
           PUBLIC_URL: "${tunnel.url}"
@@ -94,6 +96,7 @@ profiles:
         cwd: react_router_app
         cmd: npm run dev -- --host 127.0.0.1 --port 5310 --strictPort
         depends_on: [api]
+        signals: {preset: vite}
         fail_on: ["Port 5310 is already in use"]
         readiness:
           timeout: 60s

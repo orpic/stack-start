@@ -1,0 +1,20 @@
+name: logs --since, --grep and --run pick lines by time, by pattern and by run
+roadmap: "2.2"
+steps:
+  - run: up p
+    expect: {stderr_contains: "all processes finished"}
+  - run: logs app --since 500ms
+    expect: {stdout_equals: "new 1\nnew 2 ERROR\n"}
+  - run: logs app --grep ERROR
+    expect: {stdout_equals: "old 2 ERROR\nnew 2 ERROR\n"}
+  - run: logs app --grep error -i --lines 1
+    expect: {stdout_equals: "new 2 ERROR\n"}
+  - run: logs app --since 14:61
+    expect: {exit: 2, stderr_contains: "--since: \"14:61\" is not a duration"}
+  - run: up p
+  - run: logs app --run prev
+    expect: {stdout_equals: "old 1\nold 2 ERROR\nnew 1\nnew 2 ERROR\n", stderr_contains: " · run "}
+  - run: logs app --run latest --grep run
+    expect: {stdout_equals: "run 2\n"}
+  - run: logs app --run nope
+    expect: {exit: 2, stderr_contains: "no run \"nope\"; runs: "}

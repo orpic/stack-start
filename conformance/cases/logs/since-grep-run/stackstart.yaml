@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        kind: oneshot
+        cmd: |-
+          n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count; if [ $n = 1 ]; then echo 'old 1'; echo 'old 2 ERROR'; sleep 1.2; echo 'new 1'; echo 'new 2 ERROR'; else echo "run $n"; fi

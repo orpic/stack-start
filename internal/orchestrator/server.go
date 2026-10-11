@@ -115,7 +115,7 @@ func (o *Orchestrator) handleCommand(c *command) {
 	switch req.Op {
 	case "start":
 		switch p.state {
-		case sStarting, sReady, sStopping:
+		case sStarting, sReady, sStopping, sDegraded:
 			reply(cmdReply{err: &control.Error{Code: control.CodeConflict, Process: p.name,
 				Message: fmt.Sprintf("process %s is already %s", p.name, p.state),
 				Hint:    "use 'stackstart restart " + p.name + "' to restart it"}})
@@ -133,7 +133,7 @@ func (o *Orchestrator) handleCommand(c *command) {
 			p.retryTimer = nil
 		}
 		p.attempt = 0
-		p.gen++
+		o.bumpGen(p)
 		o.setState(p, sPending)
 		o.ev.Emit("start_requested", p.name, nil)
 		o.schedule()
@@ -506,6 +506,15 @@ func (o *Orchestrator) snapshot() control.SessionStatus {
 		if !p.readyAt.IsZero() {
 			ms := p.readyAt.Sub(p.startedAt).Milliseconds()
 			ps.ReadyAfterMS = &ms
+		}
+		ps.HealthFailures = p.healthFails
+		if rs := o.rebuilds[name]; rs != nil {
+			rs.mu.Lock()
+			ps.Rebuilds = rs.count
+			if rs.state != "" {
+				ps.LastRebuild = &control.RebuildStatus{State: rs.state, At: rs.at, DurationMS: rs.duration, Error: rs.lastError}
+			}
+			rs.mu.Unlock()
 		}
 		if p.state == sStopped || p.state == sPending || p.state == sBlocked || p.state == sBackoff || p.state == sFailed {
 			ps.PID = 0

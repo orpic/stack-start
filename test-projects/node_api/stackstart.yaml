@@ -19,6 +19,7 @@ profiles:
       api:
         # npm -> tsx watch -> node: tsx restarts the node child on changes.
         cmd: npm run dev
+        signals: {preset: tsx}
         env:
           PORT: "3100"
         fail_on:

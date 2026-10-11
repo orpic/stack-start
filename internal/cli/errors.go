@@ -43,7 +43,6 @@ func usageError(err error) error {
 
 func noSessionError(err error) error { return codedError{exitNoSession, "no_session", err} }
 func ambiguousError(err error) error { return codedError{exitAmbiguous, "ambiguous_session", err} }
-func timeoutError(msg string) error  { return codedError{exitTimeout, "timeout", errors.New(msg)} }
 func failedError(err error) error    { return codedError{exitFailed, "process_failed", err} }
 func controlError(ce *control.Error) error {
 	exit, code := exitFailed, ce.Code

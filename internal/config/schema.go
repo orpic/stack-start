@@ -43,6 +43,28 @@ type Process struct {
 	// SecretEnv names env variables whose values are shown as *** in status,
 	// events and env output.
 	SecretEnv []string `yaml:"secret_env,omitempty"`
+	// Signals turn output lines into rebuild events.
+	Signals *Signals `yaml:"signals,omitempty"`
+	// Health re-checks a ready process; failing checks mark it degraded.
+	Health *Health `yaml:"health,omitempty"`
+}
+
+// Signals recognise rebuilds in a process's output. Preset fills in the
+// patterns for a known tool; explicit patterns override it.
+type Signals struct {
+	Preset        string `yaml:"preset,omitempty"`
+	Rebuilding    string `yaml:"rebuilding,omitempty"`
+	Rebuilt       string `yaml:"rebuilt,omitempty"`
+	RebuildFailed string `yaml:"rebuild_failed,omitempty"`
+}
+
+// Health checks run every Interval once the process is ready.
+type Health struct {
+	Interval Duration `yaml:"interval,omitempty"`
+	Timeout  Duration `yaml:"timeout,omitempty"`
+	// Failures is how many failed rounds in a row make it degraded.
+	Failures int     `yaml:"failures,omitempty"`
+	Checks   []Check `yaml:"checks"`
 }
 
 // RestartPolicy returns the retry policy, defaulting to never.
@@ -115,6 +137,14 @@ func (r Readiness) CheckMode() string {
 type Check struct {
 	Log string `yaml:"log,omitempty"`
 	TCP string `yaml:"tcp,omitempty"`
+	// HTTP is a URL that must answer with Status (default any 2xx/3xx).
+	HTTP   string `yaml:"http,omitempty"`
+	Status int    `yaml:"status,omitempty"`
+	// Exec is a shell command, run in the process's cwd and env, that must
+	// exit 0 (e.g. pg_isready).
+	Exec string `yaml:"exec,omitempty"`
+	// File is a path (relative to the process's cwd) that must exist.
+	File string `yaml:"file,omitempty"`
 	// Capture names one of this process's captures; the check passes once
 	// that capture has a value.
 	Capture string `yaml:"capture,omitempty"`

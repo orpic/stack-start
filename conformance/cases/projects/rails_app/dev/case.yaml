@@ -18,9 +18,13 @@ steps:
   - edit_file: {path: app/views/home/index.html.erb, replace: {from: "Hello from Rails", to: "Hello again from Rails"}}
   - http: {url: "http://127.0.0.1:3200/", body_contains: "Hello again from Rails", timeout: 20s}
   # The tailwind watcher rebuilds on CSS changes.
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
   - mark: {id: up, name: before-css}
   - edit_file: {path: app/assets/tailwind/application.css, replace: {from: "@import \"tailwindcss\";", to: "@import \"tailwindcss\";\n.stackstart-case { color: red; }"}}
   - wait_output: {id: up, stream: stdout, contains: "css.1  | Done in", plain: true, since: before-css, timeout: 30s}
+  - run: wait app --for rebuilt --after ${SEQ} --timeout 30s
+    expect: {stdout_contains: "rebuild_finished app"}
   - run: down
     timeout: 60s
   - wait_exit: {id: up, exit: 0, timeout: 5s}

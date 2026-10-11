@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"github.com/orpic/stack-start/internal/interpolate"
+	"github.com/orpic/stack-start/internal/signals"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -79,6 +80,28 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 		return fmt.Errorf("process %q: on_dep_restart must be 'restart' or 'ignore', got %q", name, proc.OnDepRestart)
 	}
 
+	if s := proc.Signals; s != nil {
+		if s.Preset == "" && s.Rebuilding == "" && s.Rebuilt == "" && s.RebuildFailed == "" {
+			return fmt.Errorf("process %q: signals needs a preset or at least one of rebuilding, rebuilt, rebuild_failed", name)
+		}
+		if _, err := signals.Resolve(s.Preset, s.Rebuilding, s.Rebuilt, s.RebuildFailed); err != nil {
+			return fmt.Errorf("process %q: signals: %w", name, err)
+		}
+	}
+	if h := proc.Health; h != nil {
+		if len(h.Checks) == 0 {
+			return fmt.Errorf("process %q: health.checks must contain at least one check", name)
+		}
+		for i, c := range h.Checks {
+			if err := validateCheckKind(name, "health", i, c, false); err != nil {
+				return err
+			}
+		}
+		if h.Failures < 0 {
+			return fmt.Errorf("process %q: health.failures must not be negative", name)
+		}
+	}
+
 	if proc.OnExit != "" && proc.OnExit != "fail" && proc.OnExit != "ignore" {
 		return fmt.Errorf("process %q: on_exit must be 'fail' or 'ignore', got %q", name, proc.OnExit)
 	}
@@ -136,17 +159,8 @@ func validateReadiness(name string, r *Readiness, isOneshot bool, captures []Cap
 	}
 
 	for i, check := range r.Checks {
-		set := 0
-		for _, v := range []string{check.Log, check.TCP, check.Capture} {
-			if v != "" {
-				set++
-			}
-		}
-		if set == 0 {
-			return fmt.Errorf("process %q: readiness.checks[%d] must specify one of 'log', 'tcp' or 'capture'", name, i)
-		}
-		if set > 1 {
-			return fmt.Errorf("process %q: readiness.checks[%d] must specify only one of 'log', 'tcp' or 'capture'", name, i)
+		if err := validateCheckKind(name, "readiness", i, check, true); err != nil {
+			return err
 		}
 		if check.Capture != "" {
 			found := false
@@ -165,13 +179,44 @@ func validateReadiness(name string, r *Readiness, isOneshot bool, captures []Cap
 				return fmt.Errorf("process %q: readiness.checks[%d] invalid log regex %q: %w", name, i, check.Log, err)
 			}
 		}
-		if check.TCP != "" {
-			if !strings.Contains(check.TCP, ":") {
-				return fmt.Errorf("process %q: readiness.checks[%d] tcp must be 'host:port', got %q", name, i, check.TCP)
-			}
-		}
 	}
 
+	return nil
+}
+
+// validateCheckKind checks that a readiness or health check has exactly one
+// kind and that tcp/http values are well formed. Log and capture checks
+// only make sense for readiness.
+func validateCheckKind(name, where string, i int, check Check, readiness bool) error {
+	kinds := "'log', 'tcp', 'capture', 'http', 'exec' or 'file'"
+	values := []string{check.Log, check.TCP, check.Capture, check.HTTP, check.Exec, check.File}
+	if !readiness {
+		kinds = "'tcp', 'http', 'exec' or 'file'"
+		if check.Log != "" || check.Capture != "" {
+			return fmt.Errorf("process %q: %s.checks[%d] can only use %s", name, where, i, kinds)
+		}
+	}
+	set := 0
+	for _, v := range values {
+		if v != "" {
+			set++
+		}
+	}
+	if set == 0 {
+		return fmt.Errorf("process %q: %s.checks[%d] must specify one of %s", name, where, i, kinds)
+	}
+	if set > 1 {
+		return fmt.Errorf("process %q: %s.checks[%d] must specify only one of %s", name, where, i, kinds)
+	}
+	if check.TCP != "" && !strings.Contains(check.TCP, ":") {
+		return fmt.Errorf("process %q: %s.checks[%d] tcp must be 'host:port', got %q", name, where, i, check.TCP)
+	}
+	if check.HTTP != "" && !strings.HasPrefix(check.HTTP, "http://") && !strings.HasPrefix(check.HTTP, "https://") {
+		return fmt.Errorf("process %q: %s.checks[%d] http must be an http:// or https:// URL, got %q", name, where, i, check.HTTP)
+	}
+	if check.Status != 0 && check.HTTP == "" {
+		return fmt.Errorf("process %q: %s.checks[%d] status only applies to http checks", name, where, i)
+	}
 	return nil
 }
 

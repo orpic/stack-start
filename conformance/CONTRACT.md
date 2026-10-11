@@ -28,7 +28,7 @@ Notation: `<x>` is a variable part. `…` is free text. Strings are exact unless
 | `stackstart attach <process>` | `--profile` | until Ctrl-] (needs a terminal) |
 | `stackstart events` | `--after <seq>`, `--follow`, `--json`, `--type <t>` (repeatable), `--process <p>`, `--profile` | with `--follow` |
 | `stackstart wait [process]` | `--for ready\|exit\|rebuilt\|event:<type>`, `--after <seq>`, `--timeout <d>` (5m), `--json`, `--profile` | until the condition or the timeout |
-| `stackstart logs <process>` | `--profile <name>`, `--lines <n>`, `--follow`, `--no-follow` | follows only on a live stack with stdout on a terminal, or with `--follow` |
+| `stackstart logs <process>` | `--profile <name>`, `--lines <n>`, `--follow`, `--no-follow`, `--since <d or time>`, `--grep <re>`, `-i`, `--run latest\|prev\|<id>` | follows only on a live stack with stdout on a terminal, or with `--follow` |
 | `stackstart clean` | `--all`, `--dry-run` | no |
 
 Global flags on every command: `--config <path>` (use this file instead of the cascade lookup), `--quiet` (no `stackstart:` notices on stderr), `--log-format text|json` (diagnostic log format).
@@ -79,6 +79,9 @@ profiles:
             - log: <regex>            # a line of the process's plain output matches
             - tcp: <host:port>        # a TCP connect succeeds
             - capture: <name>         # that capture of this process has a value
+            - http: <url>             # GET answers 2xx/3xx (or `status: <code>`)
+            - exec: <shell command>   # exits 0 (run in the process's cwd and env)
+            - file: <path>            # exists (relative to the process's cwd)
         captures:
           - name: <name>
             log: <regex with exactly one group>
@@ -89,6 +92,20 @@ profiles:
         on_exit: fail | ignore        # default fail
         required: true|false          # default true
         stop_grace_period: <duration> # default 10s
+        restart: never | on-failure | always   # retry policy (section 11)
+        retries: <n>
+        backoff: <min>..<max>
+        on_dep_restart: restart | ignore
+        signals:                      # rebuild events (section 12)
+          preset: <name>
+          rebuilding: <regex>
+          rebuilt: <regex>
+          rebuild_failed: <regex>
+        health:                       # section 12
+          interval: <duration>        # default 10s
+          timeout: <duration>         # per check, default 2s
+          failures: <n>               # failed rounds in a row before degraded, default 3
+          checks: [{tcp|http|exec|file: …}]
 ```
 
 Behavior:
@@ -129,8 +146,13 @@ Behavior:
 | No readiness timeout | `process "<n>": readiness.timeout is required and must be positive` |
 | Bad mode | `process "<n>": readiness.mode must be 'any' or 'all', got "<m>"` |
 | No checks | `process "<n>": readiness.checks must contain at least one check` |
-| Check with no kind | `process "<n>": readiness.checks[<i>] must specify one of 'log', 'tcp' or 'capture'` |
-| Check with two kinds | `process "<n>": readiness.checks[<i>] must specify only one of 'log', 'tcp' or 'capture'` |
+| Check with no kind | `process "<n>": readiness.checks[<i>] must specify one of 'log', 'tcp', 'capture', 'http', 'exec' or 'file'` |
+| Check with two kinds | `process "<n>": readiness.checks[<i>] must specify only one of 'log', 'tcp', 'capture', 'http', 'exec' or 'file'` |
+| Bad http | `process "<n>": readiness.checks[<i>] http must be an http:// or https:// URL, got "<v>"` |
+| status without http | `process "<n>": readiness.checks[<i>] status only applies to http checks` |
+| Bad restart / backoff / on_dep_restart | `process "<n>": restart must be 'never', 'on-failure' or 'always', got "<v>"`; `backoff must be '<duration>' or '<min>..<max>', got "<v>"`; `on_dep_restart must be 'restart' or 'ignore', got "<v>"` |
+| Signals | `process "<n>": signals: unknown preset "<p>" (presets: …)`; `signals needs a preset or at least one of rebuilding, rebuilt, rebuild_failed`; `signals: <field>: invalid regex "<re>"` |
+| Health | `process "<n>": health.checks must contain at least one check`; `health.checks[<i>] can only use 'tcp', 'http', 'exec' or 'file'` |
 | Capture check of unknown capture | `process "<n>": readiness.checks[<i>] capture "<c>" is not one of this process's captures` |
 | Bad log regex | `process "<n>": readiness.checks[<i>] invalid log regex "<re>"` |
 | Bad tcp | `process "<n>": readiness.checks[<i>] tcp must be 'host:port', got "<v>"` |
@@ -168,7 +190,7 @@ Read it later with: stackstart logs <process>
 
 | Cause | Text |
 | --- | --- |
-| Readiness timeout | `readiness timeout after <d>; still waiting for <checks>`, where checks are `log /<re>/`, `tcp <addr>`, `capture <name>`, joined by `, ` |
+| Readiness timeout | `readiness timeout after <d>; still waiting for <checks>`, where checks are `log /<re>/`, `tcp <addr>`, `capture <name>`, `http <url>`, `exec <cmd>`, `file <path>` (the last three with ` (last: <why it failed>)`), joined by `, ` |
 | `fail_on` match | `matched fail_on /<re>/: <line>` |
 | Exit before ready | `process <p> exited before becoming ready: exit status <n>` (or `signal: <name>`), or `… (exit 0)` |
 | Exit after ready | `process <p> exited unexpectedly post-ready: exit status <n>` (or `signal: <name>`), or `… (exit 0)` |
@@ -278,3 +300,11 @@ Unknown process for any of these: exit 1, `process "<p>" not found in profile "<
 `events` prints them as `<seq> <time> <type> <process or -> <key=value …>` (or JSON lines with `--json`); on a stopped stack it reads the last run's file.
 
 **`wait`** exits 0 when the condition holds, printing the matching event (or `<p> is ready (seq <n>)` when it already was). `--for ready` is met at once if the process is ready and no `--after` is given; every other condition counts only events after `--after <seq>` (default: now). A `process_failed` of the process (or `rebuild_failed` for `rebuilt`) ends the wait with exit 1 and the failure. Timeout: exit 5, `timed out after <d> waiting for <condition>`.
+
+## 12. Rebuilds, health and log queries
+
+**Rebuild signals.** With `signals:`, lines of a *ready* process become events: `rebuild_started` (`via`: `output` or `screen_clear`, `line`), `rebuild_finished` (`line`, `duration_ms` if it started), `rebuild_failed` (`line`). A rebuild also starts when the process clears the screen, and finishes when one of its readiness `log:` checks matches again (a server that restarted printed its ready line). `rebuilt` lines count even without a start (tailwind, Vite HMR). Presets: `django`, `esbuild`, `next`, `node-watch`, `nodemon`, `phoenix`, `rails`, `tailwind`, `tsc`, `tsx`, `uvicorn`, `vite`, `webpack`; explicit patterns override a preset's. `status --json` per process: `rebuilds` (finished count) and `last_rebuild` (`state`: `rebuilding`, `ok`, `failed`; `at`; `duration_ms`; `error`). `wait <p> --for rebuilt` waits for `rebuild_finished` (or a fresh `process_ready`) and fails on `rebuild_failed`.
+
+**Health.** A ready process with `health:` is checked every `interval`. After `failures` failed rounds in a row it becomes `degraded` (event `process_degraded` with `cause`, e.g. `exec test ! -f down: exit status 1`; stderr `stackstart: <p> is degraded: <cause>`); a passing round makes it `ready` again (`process_healthy`; `stackstart: <p> is healthy again`). `status --json`: `health_failures`. A degraded process counts as up (it is not restarted).
+
+**Log queries.** `logs --since <d>` (`5m`, `1h30m`), `--since 14:05` or an RFC 3339 time prints only lines written since then (each log keeps a `<process>.log.idx` index of when each line was written); `--grep <re>` (RE2; `-i` ignores case) only matching lines; `--lines N` applies after both. `--run latest|prev|<run id or prefix>` reads that run's log (header `==> <p> · <profile> · <project> · run <id> <==`); an unknown run is exit 2 with the list of runs. A bad `--since` or `--grep` is exit 2.

@@ -55,7 +55,7 @@ func Execute() {
 	root := NewRootCmd()
 	root.PersistentPreRun = func(*cobra.Command, []string) { ran = true }
 	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
-		return codedError{exitUsage, "usage", fmt.Errorf("%w\nSee '%s --help'.", err, c.CommandPath())}
+		return codedError{exitUsage, "usage", fmt.Errorf("%w\nSee '%s --help'", err, c.CommandPath())}
 	})
 	if cmd, err := root.ExecuteC(); err != nil {
 		os.Exit(report(cmd, err))

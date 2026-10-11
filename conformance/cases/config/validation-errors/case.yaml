@@ -39,9 +39,9 @@ steps:
   - run: validate p --config ${WORK}/bad/no-checks.yaml
     expect: {exit: 2, stderr_contains: 'process "a": readiness.checks must contain at least one check'}
   - run: validate p --config ${WORK}/bad/check-no-kind.yaml
-    expect: {exit: 2, stderr_contains: 'process "a": readiness.checks[0] must specify one of ''log'', ''tcp'' or ''capture'''}
+    expect: {exit: 2, stderr_contains: 'process "a": readiness.checks[0] must specify one of ''log'', ''tcp'', ''capture'', ''http'', ''exec'' or ''file'''}
   - run: validate p --config ${WORK}/bad/check-two-kinds.yaml
-    expect: {exit: 2, stderr_contains: 'process "a": readiness.checks[0] must specify only one of ''log'', ''tcp'' or ''capture'''}
+    expect: {exit: 2, stderr_contains: 'process "a": readiness.checks[0] must specify only one of ''log'', ''tcp'', ''capture'', ''http'', ''exec'' or ''file'''}
   - run: validate p --config ${WORK}/bad/check-unknown-capture.yaml
     expect: {exit: 2, stderr_contains: 'process "a": readiness.checks[0] capture "url" is not one of this process''s captures'}
   - run: validate p --config ${WORK}/bad/bad-log-regex.yaml
@@ -80,3 +80,23 @@ steps:
     expect: {exit: 2, stderr_contains: 'profile "nope" not found in ${WORK}/bad/cycle.yaml (available: p)'}
   - run: validate nope
     expect: {exit: 2, stderr_contains: "no profile named \"nope\" applies to directory ${WORK}; run 'stackstart list' to see available profiles, or 'stackstart init' to create one"}
+  - run: validate p --config ${WORK}/bad/bad-restart.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": restart must be ''never'', ''on-failure'' or ''always'', got "sometimes"'}
+  - run: validate p --config ${WORK}/bad/bad-backoff.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": backoff must be ''<duration>'' or ''<min>..<max>'', got "soon"'}
+  - run: validate p --config ${WORK}/bad/bad-on-dep-restart.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": on_dep_restart must be ''restart'' or ''ignore'', got "always"'}
+  - run: validate p --config ${WORK}/bad/bad-preset.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": signals: unknown preset "grunt" (presets: '}
+  - run: validate p --config ${WORK}/bad/empty-signals.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": signals needs a preset or at least one of rebuilding, rebuilt, rebuild_failed'}
+  - run: validate p --config ${WORK}/bad/bad-signal-regex.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": signals: rebuilt: invalid regex "("'}
+  - run: validate p --config ${WORK}/bad/health-no-checks.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": health.checks must contain at least one check'}
+  - run: validate p --config ${WORK}/bad/health-log-check.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": health.checks[0] can only use ''tcp'', ''http'', ''exec'' or ''file'''}
+  - run: validate p --config ${WORK}/bad/bad-http.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": readiness.checks[0] http must be an http:// or https:// URL, got "localhost:3000"'}
+  - run: validate p --config ${WORK}/bad/status-without-http.yaml
+    expect: {exit: 2, stderr_contains: 'process "a": readiness.checks[0] status only applies to http checks'}

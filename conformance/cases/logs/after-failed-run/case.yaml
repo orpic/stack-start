@@ -14,4 +14,4 @@ steps:
   - run: logs other
     expect: {stdout_equals: "other ran\n"}
   - run: logs ghost
-    expect: {exit: 1, stderr_contains: 'process "ghost" not found in profile "p" (processes: '}
+    expect: {exit: 2, stderr_contains: 'process "ghost" not found in profile "p" (processes: '}

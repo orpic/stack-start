@@ -1,0 +1,9 @@
+profiles:
+  p:
+    processes:
+      app:
+        # bun --watch / tsx watch: clear the screen, restart, print the ready line.
+        cmd: |-
+          echo 'listening on 4000'; while [ ! -f trigger ]; do sleep 0.05; done; printf '\033[2J\033[3J\033[H'; sleep 0.1; echo 'listening on 4000'; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: "listening on 4000"}]}
+        signals: {preset: tsx}

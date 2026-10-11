@@ -66,6 +66,18 @@ type ProcessStatus struct {
 	Cause        string            `json:"cause,omitempty"`
 	LogFile      string            `json:"log_file"`
 	RawLogFile   string            `json:"raw_log_file"`
+	// HealthFailures counts failed health rounds in a row.
+	HealthFailures int            `json:"health_failures"`
+	Rebuilds       int            `json:"rebuilds"`
+	LastRebuild    *RebuildStatus `json:"last_rebuild,omitempty"`
+}
+
+// RebuildStatus is the latest rebuild of a process (signals: in the config).
+type RebuildStatus struct {
+	State      string    `json:"state"` // rebuilding, ok, failed
+	At         time.Time `json:"at"`
+	DurationMS int64     `json:"duration_ms,omitempty"`
+	Error      string    `json:"error,omitempty"`
 }
 
 // ExitStatus is how a process last ended.

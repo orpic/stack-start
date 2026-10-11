@@ -13,11 +13,15 @@ steps:
   - start: up dev
   - wait_output: {id: up, stream: stderr, contains: "all 2 processes ready", timeout: 60s}
   - http: {url: "http://127.0.0.1:8100/", body_contains: "Hello from Django", timeout: 10s}
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
   - mark: {id: up, name: before-edit}
   - edit_file: {path: djsite/views.py, replace: {from: "Hello from Django", to: "Hello again from Django"}}
   # runserver's StatReloader restarts the server inside the same process.
   - wait_output: {id: up, stream: stdout, contains: "djsite/views.py changed, reloading.", since: before-edit, timeout: 20s}
   - wait_output: {id: up, stream: stdout, contains: "Starting development server at http://127.0.0.1:8100/", since: before-edit, timeout: 20s}
+  - run: wait web --for rebuilt --after ${SEQ} --timeout 20s
+    expect: {stdout_contains: "rebuild_finished web"}
   - http: {url: "http://127.0.0.1:8100/", body_contains: "Hello again from Django", timeout: 10s}
   - run: down
     expect: {stdout_contains: "Stopped \"dev\" in ${WORK}."}

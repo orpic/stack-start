@@ -24,6 +24,7 @@ profiles:
         # one, printing "<file> changed, reloading."
         cmd: .venv/bin/python manage.py runserver 127.0.0.1:8100
         depends_on: [migrate]
+        signals: {preset: django}
         fail_on:
           - "Error: That port is already in use"
         readiness:

@@ -25,6 +25,7 @@ import (
 	"github.com/orpic/stack-start/internal/config"
 	"github.com/orpic/stack-start/internal/control"
 	"github.com/orpic/stack-start/internal/events"
+	"github.com/orpic/stack-start/internal/logmux"
 	"github.com/orpic/stack-start/internal/session"
 	"github.com/orpic/stack-start/internal/supervisor"
 	"github.com/orpic/stack-start/internal/version"
@@ -67,6 +68,7 @@ const (
 	sStopped  = "stopped"
 	sFailed   = "failed"
 	sExited   = "exited"
+	sDegraded = "degraded"
 )
 
 // proc is the loop's view of one process.
@@ -95,10 +97,13 @@ type proc struct {
 	// inputs are the captured values the process was started with.
 	inputs     map[string]string
 	retryTimer *time.Timer
+	// healthCancel stops the current instance's health checks.
+	healthCancel context.CancelFunc
+	healthFails  int
 
 	logPath string
 	rawPath string
-	logFile *os.File
+	logFile *logmux.LogFile
 	rawFile *os.File
 }
 
@@ -128,6 +133,8 @@ type Orchestrator struct {
 	supEvents chan supervisor.Event
 	cmds      chan *command
 	retries   chan retryTick
+	health    chan healthResult
+	rebuilds  map[string]*rebuildStats
 	stopDone  chan int
 	plans     map[int]func()
 	nextPlan  int
@@ -157,6 +164,8 @@ func New(cfg Config) *Orchestrator {
 		supEvents: make(chan supervisor.Event, 256),
 		cmds:      make(chan *command),
 		retries:   make(chan retryTick, 16),
+		health:    make(chan healthResult, 16),
+		rebuilds:  make(map[string]*rebuildStats),
 		stopDone:  make(chan int, 16),
 		plans:     make(map[int]func()),
 	}
@@ -240,13 +249,14 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		p := &proc{name: name, cfg: o.cfg.Profile.Processes[name], state: sPending}
 		p.logPath = filepath.Join(runDir, name+".log")
 		p.rawPath = filepath.Join(runDir, name+".raw.log")
-		if p.logFile, err = os.OpenFile(p.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
+		if p.logFile, err = logmux.OpenLogFile(p.logPath); err != nil {
 			return fmt.Errorf("creating log file for %s: %w", name, err)
 		}
 		if p.rawFile, err = os.OpenFile(p.rawPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
 			return fmt.Errorf("creating raw log file for %s: %w", name, err)
 		}
 		o.procs[name] = p
+		o.rebuilds[name] = &rebuildStats{}
 		o.rec.Processes = append(o.rec.Processes, session.ProcessRecord{
 			Name:      name,
 			LogFile:   p.logPath,
@@ -283,6 +293,8 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			o.handleCommand(c)
 		case t := <-o.retries:
 			o.handleRetry(t)
+		case r := <-o.health:
+			o.handleHealth(r)
 		case id := <-o.stopDone:
 			if then := o.plans[id]; then != nil {
 				delete(o.plans, id)

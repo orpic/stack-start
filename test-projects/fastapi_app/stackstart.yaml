@@ -19,6 +19,7 @@ profiles:
         # uvicorn logs to stderr. --reload runs the app in a child process
         # that WatchFiles restarts on every change.
         cmd: .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8200
+        signals: {preset: uvicorn}
         fail_on:
           - "address already in use"
         readiness:

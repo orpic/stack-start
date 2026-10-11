@@ -25,6 +25,7 @@ profiles:
         # What bin/dev does: foreman runs puma and the tailwind watcher
         # (Procfile.dev), each with its own prefix.
         cmd: bundle exec foreman start -f Procfile.dev
+        signals: {preset: rails}
         env:
           PORT: "3200"
           RUBY_DEBUG_OPEN: "true"

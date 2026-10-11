@@ -13,9 +13,13 @@ steps:
   - start: up dev
   - wait_output: {id: up, stream: stderr, contains: "1 process ready", timeout: 60s}
   - http: {url: "http://127.0.0.1:5300/", body_contains: "<title>New React Router App</title>", timeout: 20s}
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
   - mark: {id: up, name: before-route}
   - edit_file: {path: app/routes/home.tsx, replace: {from: "New React Router App", to: "Edited React Router App"}}
   - wait_output: {id: up, stream: stdout, contains: "page reload app/routes/home.tsx", plain: true, since: before-route, timeout: 20s}
+  - run: wait web --for rebuilt --after ${SEQ} --timeout 20s
+    expect: {stdout_contains: "rebuild_finished web"}
   - http: {url: "http://127.0.0.1:5300/", body_contains: "<title>Edited React Router App</title>", timeout: 20s}
   - mark: {id: up, name: before-config}
   - edit_file: {path: vite.config.ts, replace: {from: "export default", to: "// edited by a stackstart conformance case\nexport default"}}

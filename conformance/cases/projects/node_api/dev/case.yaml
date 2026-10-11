@@ -15,10 +15,14 @@ steps:
   - start: up dev
   - wait_output: {id: up, stream: stderr, contains: "1 process ready", timeout: 60s}
   - http: {url: "http://127.0.0.1:3100/", body_contains: "Hello from node_api", timeout: 10s}
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
   - mark: {id: up, name: before-edit}
   - edit_file: {path: src/server.ts, replace: {from: "Hello from node_api", to: "Hello again from node_api"}}
   - wait_output: {id: up, stream: stdout, contains: "[stackstart] screen cleared", since: before-edit, timeout: 20s}
   - wait_output: {id: up, stream: stdout, contains: "node_api listening on http://127.0.0.1:3100", since: before-edit, timeout: 20s}
+  - run: wait api --for rebuilt --after ${SEQ} --timeout 20s
+    expect: {stdout_contains: ["rebuild_finished api", "line=node_api listening on http://127.0.0.1:3100"]}
   - http: {url: "http://127.0.0.1:3100/", body_contains: "Hello again from node_api", timeout: 10s}
   - expect_output: {id: up, stream: stdout, not_contains: ["\e[2J", "\e[3J", "\ec"]}
   - run: down

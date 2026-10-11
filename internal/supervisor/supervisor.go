@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/orpic/stack-start/internal/logmux"
 	"github.com/orpic/stack-start/internal/output"
 	"github.com/orpic/stack-start/internal/readiness"
+	"github.com/orpic/stack-start/internal/signals"
 )
 
 // State represents the lifecycle state of a supervised process.
@@ -88,6 +90,15 @@ type Supervisor struct {
 	eval       *readiness.Evaluator
 	lineChecks []readiness.LineEvaluator
 	failOn     []*regexp.Regexp
+
+	// Rebuild detection (after ready).
+	readyRes      []*regexp.Regexp
+	rebuilding    *regexp.Regexp
+	rebuilt       *regexp.Regexp
+	rebuildFailed *regexp.Regexp
+	rebuiltAfter  *regexp.Regexp // ends a rebuild only if one started
+	inRebuild     bool
+	rebuildStart  time.Time
 
 	// settled is set once the startup outcome (ready, or failed before
 	// ready) has been decided, so it is decided exactly once.
@@ -161,8 +172,19 @@ func (s *Supervisor) buildChecks() error {
 				}
 				checks = append(checks, lc)
 				s.lineChecks = append(s.lineChecks, lc)
+				s.readyRes = append(s.readyRes, lc.Pattern)
 			case chk.TCP != "":
 				checks = append(checks, readiness.NewTCPCheck(chk.TCP))
+			case chk.HTTP != "":
+				checks = append(checks, &readiness.ProbeCheck{Desc: "http " + chk.HTTP, Probe: readiness.HTTPProbe(chk.HTTP, chk.Status)})
+			case chk.Exec != "":
+				checks = append(checks, &readiness.ProbeCheck{Desc: "exec " + chk.Exec, Probe: readiness.ExecProbe(chk.Exec, s.cwd(), s.Env), Interval: 500 * time.Millisecond})
+			case chk.File != "":
+				path := chk.File
+				if !filepath.IsAbs(path) {
+					path = filepath.Join(s.cwd(), path)
+				}
+				checks = append(checks, &readiness.ProbeCheck{Desc: "file " + chk.File, Probe: readiness.FileProbe(path)})
 			case chk.Capture != "":
 				capture := s.findCapture(chk.Capture)
 				if capture == nil {
@@ -173,6 +195,21 @@ func (s *Supervisor) buildChecks() error {
 		}
 	}
 	s.eval = readiness.NewEvaluator(s.readinessMode(), checks)
+
+	if sig := s.Proc.Signals; sig != nil {
+		pat, err := signals.Resolve(sig.Preset, sig.Rebuilding, sig.Rebuilt, sig.RebuildFailed)
+		if err != nil {
+			return err
+		}
+		compile := func(re string) *regexp.Regexp {
+			if re == "" {
+				return nil
+			}
+			return regexp.MustCompile(re)
+		}
+		s.rebuilding, s.rebuilt, s.rebuildFailed = compile(pat.Rebuilding), compile(pat.Rebuilt), compile(pat.RebuildFailed)
+		s.rebuiltAfter = compile(pat.RebuiltAfterStart)
+	}
 
 	for _, p := range s.Proc.FailOn {
 		re, err := regexp.Compile(p)
@@ -204,6 +241,10 @@ func (s *Supervisor) handleLine(l output.Line) {
 	if l.Cleared {
 		s.Mux.Marker("screen cleared")
 		s.notify("screen_cleared", nil)
+		// Watchers clear the screen when they start a rebuild.
+		if s.ready.Load() && !s.inRebuild {
+			s.startRebuild("screen_clear", "")
+		}
 	}
 	if l.Cleared && l.Plain == "" {
 		return
@@ -221,6 +262,7 @@ func (s *Supervisor) handleLine(l output.Line) {
 				break
 			}
 		}
+		s.detectRebuild(l.Plain)
 		return
 	}
 	if s.settled.Load() {
@@ -397,6 +439,67 @@ func (s *Supervisor) emitEvent(state State, err error) {
 		LastLog: s.copyLastLog(),
 		Exit:    s.Exit(),
 	}
+}
+
+// detectRebuild turns output lines of a ready process into rebuild events.
+func (s *Supervisor) detectRebuild(line string) {
+	switch {
+	case s.rebuildFailed != nil && s.rebuildFailed.MatchString(line):
+		fields := map[string]any{"line": line}
+		if s.inRebuild {
+			fields["duration_ms"] = time.Since(s.rebuildStart).Milliseconds()
+		}
+		s.inRebuild = false
+		s.notify("rebuild_failed", fields)
+	case s.rebuilding != nil && s.rebuilding.MatchString(line):
+		if !s.inRebuild {
+			s.startRebuild("output", line)
+		}
+	case s.rebuilt != nil && s.rebuilt.MatchString(line):
+		// Tools that only report finished builds (tailwind, Vite HMR)
+		// count every one.
+		s.finishRebuild(line)
+	case s.inRebuild && s.rebuiltAfter != nil && s.rebuiltAfter.MatchString(line):
+		s.finishRebuild(line)
+	case s.inRebuild && matchesAny(s.readyRes, line):
+		// The process printed its ready line again: it restarted.
+		s.finishRebuild(line)
+	}
+}
+
+func (s *Supervisor) startRebuild(via, line string) {
+	s.inRebuild = true
+	s.rebuildStart = time.Now()
+	fields := map[string]any{"via": via}
+	if line != "" {
+		fields["line"] = line
+	}
+	s.notify("rebuild_started", fields)
+}
+
+func (s *Supervisor) finishRebuild(line string) {
+	fields := map[string]any{"line": line}
+	if s.inRebuild {
+		fields["duration_ms"] = time.Since(s.rebuildStart).Milliseconds()
+	}
+	s.inRebuild = false
+	s.notify("rebuild_finished", fields)
+}
+
+func matchesAny(res []*regexp.Regexp, line string) bool {
+	for _, re := range res {
+		if re.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Supervisor) cwd() string {
+	if s.Proc.Cwd != "" {
+		return filepath.Join(s.ProjectPath, s.Proc.Cwd)
+	}
+	return s.ProjectPath
 }
 
 func (s *Supervisor) notify(typ string, fields map[string]any) {

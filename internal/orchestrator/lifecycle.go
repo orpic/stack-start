@@ -65,7 +65,7 @@ func (o *Orchestrator) schedule() {
 
 // startProcess starts a new instance of p.
 func (o *Orchestrator) startProcess(p *proc) {
-	p.gen++
+	o.bumpGen(p)
 	p.expectStop = false
 	p.cause = ""
 	p.blockedBy = ""
@@ -119,6 +119,9 @@ func (o *Orchestrator) startProcess(p *proc) {
 		Notify: func(typ string, fields map[string]any) {
 			if typ == "capture" && o.isSecretCapture(name, fmt.Sprint(fields["name"])) {
 				fields["value"] = "***"
+			}
+			if strings.HasPrefix(typ, "rebuild_") {
+				o.recordRebuild(name, typ, fields)
 			}
 			o.ev.Emit(typ, name, fields)
 		},
@@ -196,6 +199,8 @@ func (o *Orchestrator) handleSupEvent(e supervisor.Event) {
 			p.recovering = false
 			o.restartChangedDependents(p)
 		}
+		p.healthFails = 0
+		o.startHealth(p)
 		o.schedule()
 
 	case supervisor.StateFailed:
@@ -325,7 +330,7 @@ func (o *Orchestrator) handleRetry(t retryTick) {
 // from now on.
 func (o *Orchestrator) retire(p *proc, then func()) {
 	sup := p.sup
-	p.gen++
+	o.bumpGen(p)
 	if sup == nil || !sup.Alive() {
 		if then != nil {
 			then()
@@ -355,7 +360,7 @@ func (o *Orchestrator) restartChangedDependents(p *proc) {
 	now := o.registry.Snapshot()
 	for _, name := range o.order {
 		d := o.procs[name]
-		if d == p || d.cfg.OnDepRestart == "ignore" || (d.state != sReady && d.state != sStarting) {
+		if d == p || d.cfg.OnDepRestart == "ignore" || (d.state != sReady && d.state != sDegraded && d.state != sStarting) {
 			continue
 		}
 		for ref, old := range d.inputs {
@@ -398,7 +403,7 @@ func (o *Orchestrator) stopTargets(name, by string, then func(targets []*proc)) 
 	}
 	id := o.newPlan(func() {
 		for _, p := range targets {
-			p.gen++
+			o.bumpGen(p)
 			p.expectStop = false
 			p.pid = 0
 		}
@@ -558,7 +563,7 @@ func (o *Orchestrator) finish(outcome, failedProcess string, cause error) {
 // waits for one that did).
 func (o *Orchestrator) settled(p *proc) bool {
 	switch p.state {
-	case sReady, sExited:
+	case sReady, sExited, sDegraded:
 		return true
 	case sFailed:
 		return !p.cfg.IsRequired()
@@ -600,7 +605,7 @@ func (o *Orchestrator) check() {
 			if p.cfg.IsRequired() && failedRequired == nil {
 				failedRequired = p
 			}
-		case sReady:
+		case sReady, sDegraded:
 			if !p.cfg.IsOneshot() {
 				return
 			}

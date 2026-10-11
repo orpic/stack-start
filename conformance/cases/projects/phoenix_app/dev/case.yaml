@@ -18,18 +18,33 @@ steps:
   - wait_output: {id: up, stream: stderr, contains: "stackstart: all 4 processes ready · logs: ", timeout: 180s}
   - http: {url: "http://127.0.0.1:4100/", body_contains: "Phoenix Framework", timeout: 20s}
   # Phoenix's code reloader recompiles on the next request.
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
   - mark: {id: up, name: before-ex}
   - edit_file:
       path: lib/phoenix_app_web/controllers/page_controller.ex
       replace: {from: "  def home(conn, _params) do", to: "  # edited by a stackstart conformance case\n  def home(conn, _params) do"}
   - http: {url: "http://127.0.0.1:4100/", timeout: 30s}
   - wait_output: {id: up, stream: stdout, contains: "Compiling 1 file (.ex)", since: before-ex, timeout: 30s}
+  # The phoenix preset turns the recompile into rebuild events.
+  - run: wait phoenix --for rebuilt --after ${SEQ} --timeout 30s
+    expect: {stdout_contains: "rebuild_finished phoenix"}
+  - run: events --after ${SEQ} --type rebuild_started
+    expect: {stdout_contains: "rebuild_started phoenix line=Compiling 1 file (.ex) via=output"}
+  - run: status --json
+    save_json: {SEQ2: "sessions[0].events.last_seq"}
   # The tailwind watcher (a BEAM port) rebuilds on CSS changes.
   - mark: {id: up, name: before-css}
   - edit_file:
       path: assets/css/app.css
       replace: {from: "@source \"../css\";", to: "@source \"../css\";\n.stackstart-case { color: red; }"}
   - wait_output: {id: up, stream: stdout, matches: 'phoenix +\| (?:\x1b\[[0-9;]*m)*Done in \d+m?s', since: before-css, timeout: 30s}
+  # The .ex edit also makes esbuild rebuild (colocated hooks), so tailwind's
+  # "Done in" is one of several rebuild_finished events after the mark.
+  - run: wait phoenix --for rebuilt --after ${SEQ2} --timeout 30s
+    expect: {stdout_contains: "rebuild_finished phoenix"}
+  - run: events --after ${SEQ2} --type rebuild_finished
+    expect: {stdout_matches: 'rebuild_finished phoenix .*line=Done in \d+m?s'}
   - run: down
     timeout: 60s
     expect: {stdout_contains: "Stopped \"dev\" in ${WORK}. Logs: "}

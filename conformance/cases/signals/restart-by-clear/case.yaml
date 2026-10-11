@@ -1,0 +1,15 @@
+name: a watcher that clears the screen and prints its ready line again counts as one rebuild
+roadmap: "2.5"
+covers: [clear, self-restart]
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
+  - write_file: {path: trigger, content: "1"}
+  - run: wait app --for rebuilt --after ${SEQ} --timeout 10s
+    expect: {stdout_contains: ["rebuild_finished app", "line=listening on 4000"]}
+  - run: events --after ${SEQ} --type rebuild_started
+    expect: {stdout_contains: "rebuild_started app via=screen_clear"}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}
