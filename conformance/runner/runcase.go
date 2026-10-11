@@ -89,6 +89,7 @@ func runCase(ctx context.Context, c *Case, opts Options) (res Result) {
 	defer r.restoreFiles()
 
 	timeout, _ := c.TimeoutDuration()
+	timeout = time.Duration(float64(timeout) * timeoutScale)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

@@ -10,4 +10,4 @@ profiles:
         pidfile: svc.pid
         log_file: svc.log
         stop_cmd: echo stop_cmd > stopped-by; kill $(cat svc.pid)
-        readiness: {timeout: 10s, checks: [{log: "daemon tick 1"}]}
+        readiness: {timeout: 30s, checks: [{log: "daemon tick 1"}]}

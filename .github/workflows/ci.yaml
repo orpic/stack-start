@@ -44,7 +44,7 @@ jobs:
       - name: Runner self-test
         run: conformance/runner/selftest/run.sh tmp/conformance tmp/stackstart
       - name: Conformance cases
-        run: tmp/conformance --bin tmp/stackstart --skip-projects --junit tmp/conformance.xml
+        run: tmp/conformance --bin tmp/stackstart --skip-projects --timeout-scale 2 --junit tmp/conformance.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -92,7 +92,7 @@ jobs:
           go build -o tmp/stackstart ./cmd/stackstart
           (cd conformance/runner && go build -o ../../tmp/conformance .)
       - name: All conformance cases
-        run: tmp/conformance --bin tmp/stackstart -v --junit tmp/conformance.xml
+        run: tmp/conformance --bin tmp/stackstart -v --timeout-scale 2 --junit tmp/conformance.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -22,6 +22,26 @@ import (
 
 func (s *Supervisor) isDaemon() bool { return s.Proc.Kind == "daemon" }
 
+// spawnDetached starts a daemon's launcher in its own session with no
+// controlling terminal, its output on a pipe. On a terminal, the launcher
+// (the session leader) exiting would hang up the session and could kill
+// the daemon it forked before that daemon calls setsid.
+func spawnDetached(cmd *exec.Cmd) (*os.File, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	cmd.Stdout, cmd.Stderr = w, w
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		_ = r.Close()
+		_ = w.Close()
+		return nil, err
+	}
+	_ = w.Close()
+	return r, nil
+}
+
 func (s *Supervisor) path(p string) string {
 	if filepath.IsAbs(p) {
 		return p

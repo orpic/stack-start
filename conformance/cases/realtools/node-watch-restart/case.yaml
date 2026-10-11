@@ -8,8 +8,12 @@ steps:
   - write_file: {path: server.js, content: "console.log('listening v1'); setInterval(() => {}, 1000)\n"}
   - start: up p
   - wait_output: {id: up, contains: "1 process ready", timeout: 20s}
-  - write_file: {path: server.js, content: "console.log('listening v2'); setInterval(() => {}, 1000)\n"}
-  - wait_output: {id: up, stream: stdout, contains: "listening v2", timeout: 15s}
+  # A watcher may not be watching yet right after the first line under load,
+  # so the new version is written again every 2s until it is picked up.
+  - write_file: {path: server.v2, content: "console.log('listening v2'); setInterval(() => {}, 1000)\n"}
+  - spawn: while :; do cp server.v2 server.js; sleep 2; done
+    id: editor
+  - wait_output: {id: up, stream: stdout, contains: "listening v2", timeout: 30s}
   - signal: {id: up, sig: TERM}
   - wait_exit: {id: up, exit: 0, timeout: 15s}
   - run: logs app

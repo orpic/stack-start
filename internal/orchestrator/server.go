@@ -396,6 +396,7 @@ func (o *Orchestrator) waitFor(w *control.Writer, req control.Request, timeout t
 	if cond == "" {
 		cond = "ready"
 	}
+	after := req.After
 	if req.Process != "" {
 		r := o.ask(control.Request{Op: "status"})
 		if r.err != nil {
@@ -403,6 +404,11 @@ func (o *Orchestrator) waitFor(w *control.Writer, req control.Request, timeout t
 			return
 		}
 		st := r.result.(control.SessionStatus)
+		if after == 0 {
+			// "From now on" is the moment of this snapshot, so an event
+			// that comes right after it is not missed.
+			after = st.Events.LastSeq
+		}
 		found := false
 		for _, ps := range st.Processes {
 			if ps.Name != req.Process {
@@ -438,7 +444,6 @@ func (o *Orchestrator) waitFor(w *control.Writer, req control.Request, timeout t
 		return false
 	}
 	deadline := time.After(timeout)
-	after := req.After
 	if after == 0 {
 		// Without --after, only what happens from now on counts (a process
 		// that is already ready was handled above).

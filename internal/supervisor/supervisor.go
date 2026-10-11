@@ -136,7 +136,13 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	s.cmd.Dir = cwd
 	s.cmd.Env = s.Env
 
-	ptyMaster, err := spawnPTY(s.cmd)
+	var ptyMaster *os.File
+	var err error
+	if s.isDaemon() {
+		ptyMaster, err = spawnDetached(s.cmd)
+	} else {
+		ptyMaster, err = spawnPTY(s.cmd)
+	}
 	if err != nil {
 		err = fmt.Errorf("failed to spawn: %w", err)
 		s.emitEvent(StateFailed, err)
@@ -202,6 +208,10 @@ func (s *Supervisor) buildChecks() error {
 				checks = append(checks, readiness.FuncCheck{Desc: "capture " + chk.Capture, Fn: capture.Done})
 			}
 		}
+	}
+	if s.isDaemon() {
+		// A daemon is not ready before its pidfile names a running process.
+		checks = append(checks, readiness.FuncCheck{Desc: "pidfile " + s.Proc.Pidfile, Fn: func() bool { return s.daemonPID.Load() != 0 }})
 	}
 	s.eval = readiness.NewEvaluator(s.readinessMode(), checks)
 

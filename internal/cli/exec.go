@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -52,8 +53,13 @@ func processEnv(profile, process string) (control.EnvResult, bool, error) {
 		}
 		return control.EnvResult{}, false, usageError(fmt.Errorf("process %q not found in profile %q (processes: %s)", process, profile, strings.Join(names, ", ")))
 	}
-	for k, v := range pc.Env {
-		toks, _ := interpolate.Tokenize(v)
+	envKeys := make([]string, 0, len(pc.Env))
+	for k := range pc.Env {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	for _, k := range envKeys {
+		toks, _ := interpolate.Tokenize(pc.Env[k])
 		for _, t := range toks {
 			if !t.Literal && !strings.HasPrefix(t.Value, "envrc.") {
 				return control.EnvResult{}, false, failedError(fmt.Errorf(

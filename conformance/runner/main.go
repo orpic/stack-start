@@ -43,11 +43,15 @@ func run() int {
 		verbose      = flag.Bool("v", false, "print every step")
 		skipProjects = flag.Bool("skip-projects", false, "skip cases that use a test project")
 		list         = flag.Bool("list", false, "list matching cases and exit")
+		scale        = flag.Float64("timeout-scale", 1, "multiply every wait timeout (for slow machines)")
 		filters      multiFlag
 	)
 	flag.Var(&filters, "filter", "run only cases whose id matches this glob (repeatable)")
 	flag.Parse()
 
+	if *scale > 0 {
+		timeoutScale = *scale
+	}
 	if *casesDir == "" {
 		*casesDir = defaultCasesDir()
 	}

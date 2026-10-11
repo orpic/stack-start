@@ -4,6 +4,8 @@ covers: [oneshot]
 steps:
   - start: up ok
   - wait_output: {id: up, contains: "all 2 processes ready", timeout: 10s}
+  # stdout and stderr are separate pipes: the notice can arrive first.
+  - wait_output: {id: up, stream: stdout, contains: "APP_UP", timeout: 5s}
   - expect_output: {id: up, stream: stdout, in_order: ["BUILD_COMPLETE", "EXTRA_OUTPUT", "APP_UP"]}
   - signal: {id: up, sig: TERM}
   - wait_exit: {id: up, exit: 0, timeout: 15s}

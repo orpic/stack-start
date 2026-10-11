@@ -31,7 +31,7 @@ steps:
   - run: exec plain --profile p -- sh -c 'echo $FROM_ENVRC'
     expect: {stdout_equals: "envrc\n"}
   - run: env app --profile p
-    expect: {exit: 1, stderr_contains: "app uses ${tunnel.url} (in URL), which is only known while the stack runs; start it with 'stackstart up p -d'"}
+    expect: {exit: 1, stderr_contains: "app uses ${tunnel.token} (in TOKEN_X), which is only known while the stack runs; start it with 'stackstart up p -d'"}
   - run: env app
     expect: {exit: 2, stderr_contains: "no running stack here; pass --profile <name>"}
   - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

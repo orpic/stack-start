@@ -108,15 +108,29 @@ func (p params) str(k string) string {
 
 func (p params) has(k string) bool { _, ok := p[k]; return ok }
 
+// timeoutScale multiplies every wait timeout (--timeout-scale), for slow
+// machines. Upper bounds that prove something is fast (within) and sleeps
+// are not scaled.
+var timeoutScale = 1.0
+
 func (p params) dur(k string, def time.Duration, required bool) (time.Duration, error) {
 	s := p.str(k)
+	var d time.Duration
 	if s == "" {
 		if required {
 			return 0, fmt.Errorf("'%s' is required", k)
 		}
-		return def, nil
+		d = def
+	} else {
+		var err error
+		if d, err = time.ParseDuration(s); err != nil {
+			return 0, err
+		}
 	}
-	return time.ParseDuration(s)
+	if k == "timeout" {
+		d = time.Duration(float64(d) * timeoutScale)
+	}
+	return d, nil
 }
 
 func (p params) strMap(k string) map[string]string {
@@ -518,14 +532,31 @@ func (r *caseRun) stepExpectOutput(p params) error {
 	if err != nil {
 		return err
 	}
-	for _, name := range keys(assertionNames) {
-		if v, ok := p[name]; ok {
-			if err := checkAssertion(name, v, text()); err != nil {
-				return fmt.Errorf("%s output of %s: %v", st, c.id, err)
+	// stdout and stderr are separate pipes, so output a process printed
+	// before a notice may still be in flight. Positive assertions get two
+	// seconds to become true; negative ones are checked at once.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var failed error
+		for _, name := range keys(assertionNames) {
+			if v, ok := p[name]; ok {
+				if err := checkAssertion(name, v, text()); err != nil {
+					failed = fmt.Errorf("%s output of %s: %v", st, c.id, err)
+					if name == "not_contains" {
+						return failed
+					}
+					break
+				}
 			}
 		}
+		if failed == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return failed
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	return nil
 }
 
 func (r *caseRun) stepWaitExit(ctx context.Context, p params) error {
