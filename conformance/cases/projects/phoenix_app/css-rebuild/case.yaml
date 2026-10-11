@@ -1,0 +1,30 @@
+name: "Phoenix: the tailwind watcher (a BEAM port) rebuilds on a CSS edit and the preset reports it"
+roadmap: "2.5"
+covers: [group-escape]
+project: test-projects/phoenix_app
+platforms: [darwin]
+requires: ["mix --version", "initdb --version", "test -d deps"]
+timeout: 600s
+notes: "macOS only for now: on GitHub's Ubuntu runner the tailwind v4 standalone watcher never saw the edit ('sh: 1: watchman: not found' at start), even with inotify-tools installed. See ROADMAP findings."
+steps:
+  - port: {addr: "127.0.0.1:4100", open: false, timeout: 1s}
+  - start: up dev
+  - wait_output: {id: up, stream: stderr, contains: "stackstart: all 4 processes ready · logs: ", timeout: 180s}
+  - run: status --json
+    save_json: {SEQ2: "sessions[0].events.last_seq"}
+  # The tailwind watcher (a BEAM port) rebuilds on CSS changes.
+  - mark: {id: up, name: before-css}
+  - edit_file:
+      path: assets/css/app.css
+      replace: {from: "@source \"../css\";", to: "@source \"../css\";\n.stackstart-case { color: red; }"}
+  - wait_output: {id: up, stream: stdout, matches: 'phoenix +\| (?:\x1b\[[0-9;]*m)*Done in \d+m?s', since: before-css, timeout: 30s}
+  # Other watchers (esbuild) may report rebuilds too, so tailwind's
+  # "Done in" is one of the rebuild_finished events after the mark.
+  - run: wait phoenix --for rebuilt --after ${SEQ2} --timeout 30s
+    expect: {stdout_contains: "rebuild_finished phoenix"}
+  - run: events --after ${SEQ2} --type rebuild_finished
+    expect: {stdout_matches: 'rebuild_finished phoenix .*line=Done in \d+m?s'}
+  - run: down
+    timeout: 60s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:4100", open: false, timeout: 5s}

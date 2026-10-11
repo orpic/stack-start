@@ -1,0 +1,9 @@
+name: a long line whose end arrives in a later read is still split into 64 KB pieces
+roadmap: "0.1"
+covers: [long-line]
+notes: "found 2026-10-11 on Linux CI: 63000 bytes, then 5928 more and the newline in one read, gave one 68928-byte line. Reproduces with Linux terminal read sizes; macOS reads are smaller"
+steps:
+  - run: up p
+    expect: {stderr_contains: "all processes finished"}
+  - sh: '"${BIN}" logs app 2>/dev/null | awk "{print length}"'
+    expect: {stdout_equals: "65536\n3392\n65536\n4464\n"}

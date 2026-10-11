@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        kind: oneshot
+        cmd: |-
+          perl -e '$|=1; print "x" x 63000; select(undef,undef,undef,0.05); print "x" x 5928, "\n"; print "y" x 70000, "\n"'

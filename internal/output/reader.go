@@ -95,7 +95,16 @@ func (r Reader) Run(src io.Reader, emit func(Line)) {
 				if idx < 0 {
 					break
 				}
-				emit(Sanitize(pending[:idx]))
+				line := pending[:idx]
+				// A long line whose end arrived in this read: split it like
+				// an unfinished one, so no line is longer than maxLine.
+				for len(line) > maxLine {
+					l := Sanitize(line[:maxLine])
+					l.Partial = true
+					emit(l)
+					line = line[maxLine:]
+				}
+				emit(Sanitize(line))
 				pending = pending[idx+1:]
 			}
 			for len(pending) >= maxLine {

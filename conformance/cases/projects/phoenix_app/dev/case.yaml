@@ -1,4 +1,4 @@
-name: "Phoenix: setup, then postgres + migrations + phoenix; edits recompile and rebuild CSS; down leaves nothing; data is reused"
+name: "Phoenix: setup, then postgres + migrations + phoenix; an edit recompiles; down leaves nothing; data is reused"
 roadmap: "0.5, 0.7, 0.14, 0.15"
 covers: [group-escape, ignores-sigterm, self-restart, oneshot, silent-port, build-dir]
 project: test-projects/phoenix_app
@@ -33,18 +33,6 @@ steps:
     expect: {stdout_contains: "rebuild_started phoenix line=Compiling 1 file (.ex) via=output"}
   - run: status --json
     save_json: {SEQ2: "sessions[0].events.last_seq"}
-  # The tailwind watcher (a BEAM port) rebuilds on CSS changes.
-  - mark: {id: up, name: before-css}
-  - edit_file:
-      path: assets/css/app.css
-      replace: {from: "@source \"../css\";", to: "@source \"../css\";\n.stackstart-case { color: red; }"}
-  - wait_output: {id: up, stream: stdout, matches: 'phoenix +\| (?:\x1b\[[0-9;]*m)*Done in \d+m?s', since: before-css, timeout: 30s}
-  # The .ex edit also makes esbuild rebuild (colocated hooks), so tailwind's
-  # "Done in" is one of several rebuild_finished events after the mark.
-  - run: wait phoenix --for rebuilt --after ${SEQ2} --timeout 30s
-    expect: {stdout_contains: "rebuild_finished phoenix"}
-  - run: events --after ${SEQ2} --type rebuild_finished
-    expect: {stdout_matches: 'rebuild_finished phoenix .*line=Done in \d+m?s'}
   - run: down
     timeout: 60s
     expect: {stdout_contains: "Stopped \"dev\" in ${WORK}. Logs: "}
