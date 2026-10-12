@@ -1,0 +1,9 @@
+name: the last 10 runs of a profile are kept and older ones are deleted
+roadmap: "0.7"
+steps:
+  - sh: for i in 1 2 3 4 5 6 7 8 9 10 11 12; do "${BIN}" up p >/dev/null 2>&1; sleep 1.05; done; true
+    timeout: 40s
+  - run: clean --dry-run
+    expect: {stdout_contains: "Would remove 10 finished run(s)"}
+  - run: logs app
+    expect: {stdout_equals: "run 12\n"}

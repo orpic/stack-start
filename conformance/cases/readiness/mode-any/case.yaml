@@ -1,0 +1,13 @@
+name: mode any is ready when one check passes; mode all waits for every check
+roadmap: v0
+steps:
+  - start: up anyp
+    id: any
+  - wait_output: {id: any, contains: "1 process ready", timeout: 5s}
+  - signal: {id: any, sig: TERM}
+  - wait_exit: {id: any, exit: 0, timeout: 15s}
+  - run: up allp
+    timeout: 15s
+    expect:
+      exit: 1
+      stderr_contains: ["--- FAILED: app ---", "readiness timeout after 1s; still waiting for log /SIGNAL_A/"]

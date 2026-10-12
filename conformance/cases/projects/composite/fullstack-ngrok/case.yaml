@@ -1,0 +1,15 @@
+name: "Composite with an ngrok tunnel: its URL is captured and reaches Phoenix and the API"
+roadmap: "0.10, 0.11"
+project: test-projects
+requires: ["ngrok config check", "mix --version", "npm --version", "test -d phoenix_app/deps", "test -d node_api/node_modules", "test -d react_router_app/node_modules"]
+timeout: 600s
+notes: "skips unless ngrok has an authtoken configured; never configure one from a case"
+steps:
+  - start: up fullstack-ngrok
+  - wait_output: {id: up, stream: stdout, matches: 'url=(https://[a-z0-9-]+\.ngrok(?:-free)?\.(?:app|dev|io))', save: URL, timeout: 90s}
+  - wait_output: {id: up, stream: stderr, contains: "stackstart: all 7 processes ready", timeout: 300s}
+  - http: {url: "http://127.0.0.1:4110/tunnel", body_contains: "${URL}", timeout: 20s}
+  - http: {url: "http://127.0.0.1:3110/", body_contains: "${URL}", timeout: 20s}
+  - run: down
+    timeout: 90s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}

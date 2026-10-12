@@ -1,0 +1,15 @@
+name: "Rails console: ready on its numbered prompt, which has no trailing newline"
+roadmap: "0.2"
+covers: [prompt]
+project: test-projects/rails_app
+requires: ["ruby -e 'exit(RUBY_VERSION >= \"3.2\" ? 0 : 1)'", "test -f Gemfile.lock", "bundle check"]
+timeout: 300s
+steps:
+  - start: up console
+  - wait_output: {id: up, stream: stderr, contains: "1 process ready", timeout: 120s}
+  - expect_output: {id: up, stream: stdout, contains: "Loading development environment (Rails "}
+  - run: down
+    timeout: 60s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - run: logs console
+    expect: {stdout_matches: '(?m)^rails-app\(dev\):001> ', stdout_not_contains: "\e"}

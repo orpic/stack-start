@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        # Go log, Python logging, Elixir Logger.
+        cmd: echo stderr ready >&2; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 3s, checks: [{log: stderr ready}]}

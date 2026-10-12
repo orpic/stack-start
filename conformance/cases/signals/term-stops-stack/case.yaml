@@ -1,0 +1,15 @@
+name: SIGTERM or SIGINT to up stops every process and exits 0
+roadmap: v0
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 10s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - expect_output: {id: up, stream: stderr, contains: "stackstart: stopping all processes (Ctrl-C again to kill immediately)"}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}
+  - start: up p
+    id: up2
+  - wait_output: {id: up2, contains: "all 2 processes ready", timeout: 10s}
+  - signal: {id: up2, sig: INT}
+  - wait_exit: {id: up2, exit: 0, timeout: 15s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

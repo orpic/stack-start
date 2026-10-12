@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: echo waiting for something; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 1s, checks: [{tcp: "127.0.0.1:1"}]}

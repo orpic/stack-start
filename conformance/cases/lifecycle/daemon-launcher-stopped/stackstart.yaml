@@ -1,0 +1,12 @@
+profiles:
+  p:
+    processes:
+      svc:
+        kind: daemon
+        # The launcher double-forks the daemon (so it is no longer the
+        # launcher's descendant), then lingers before exiting, so the stop
+        # signal kills the launcher rather than finding it gone.
+        cmd: |-
+          perl -MPOSIX -e 'if (fork) { sleep 5; exit } POSIX::setsid(); exit if fork; $0 = "lingering-daemon-" . $ARGV[0]; open(STDIN, "<", "/dev/null"); open(STDOUT, ">>", "svc.log"); open(STDERR, ">>", "svc.log"); sleep 1.5; open(P, ">", "svc.pid"); print P "$$$$\n"; close P; $SIG{TERM} = sub { exit 0 }; sleep 1 while 1' ${TOKEN}
+        pidfile: svc.pid
+        readiness: {timeout: 20s, checks: [{file: svc.pid}]}

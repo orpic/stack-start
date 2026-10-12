@@ -1,0 +1,15 @@
+name: "IEx: the iex(1)> prompt is a ready signal and the log is plain text"
+roadmap: "0.2"
+covers: [prompt]
+home: real
+requires: ["iex --version"]
+timeout: 90s
+notes: "fails on v0.2.3: the prompt has no newline and was never seen"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 40s}
+  - run: down
+    timeout: 30s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - run: logs iex
+    expect: {stdout_contains: "iex(1)> ", stdout_not_contains: "\e"}

@@ -1,0 +1,12 @@
+name: without stop_grace_period a process that ignores SIGTERM gets 10 seconds before SIGKILL
+roadmap: v0
+covers: [ignores-sigterm]
+timeout: 40s
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 5s}
+  - run: down --no-wait
+  - wait_output: {id: up, contains: "ignoring TERM", timeout: 3s}
+  - alive: {id: up, for: 8500ms}
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 2s}

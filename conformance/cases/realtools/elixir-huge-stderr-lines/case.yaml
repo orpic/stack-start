@@ -1,0 +1,13 @@
+name: "Elixir: a 150 KB line on stderr is logged whole; Logger's own 8 KB truncation is kept as-is"
+roadmap: "0.1"
+covers: [long-line]
+home: real
+requires: ["elixir --version"]
+timeout: 90s
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 40s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 20s}
+  - run: logs app
+    expect: {stdout_count: {"z": 150000}, stdout_contains: ["(truncated)", "after long line"]}

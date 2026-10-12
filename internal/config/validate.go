@@ -2,9 +2,16 @@ package config
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
+
+	"github.com/orpic/stack-start/internal/interpolate"
+	"github.com/orpic/stack-start/internal/signals"
+	"gopkg.in/yaml.v3"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 func Validate(profile Profile, profileName string) error {
@@ -27,7 +34,19 @@ func Validate(profile Profile, profileName string) error {
 		return err
 	}
 
-	if err := validateCaptureRefs(profile.Processes); err != nil {
+	for name, port := range profile.Ports {
+		if !portName.MatchString(name) {
+			return fmt.Errorf("ports: invalid name %q (letters, digits, - and _)", name)
+		}
+		if port < 1 || port > 65535 {
+			return fmt.Errorf("ports: %s must be between 1 and 65535, got %d", name, port)
+		}
+	}
+	if err := validatePortRefs(profile); err != nil {
+		return err
+	}
+
+	if err := validateCaptureRefs(profile.Processes, profile.Ports); err != nil {
 		return err
 	}
 
@@ -35,8 +54,14 @@ func Validate(profile Profile, profileName string) error {
 }
 
 func validateProcess(name string, proc Process, names map[string]bool, profile Profile) error {
-	if proc.Kind != "" && proc.Kind != "oneshot" && proc.Kind != "long-running" {
-		return fmt.Errorf("process %q: kind must be 'oneshot' or 'long-running', got %q", name, proc.Kind)
+	if proc.Kind != "" && proc.Kind != "oneshot" && proc.Kind != "long-running" && proc.Kind != "daemon" {
+		return fmt.Errorf("process %q: kind must be 'oneshot', 'long-running' or 'daemon', got %q", name, proc.Kind)
+	}
+	if proc.Kind == "daemon" && proc.Pidfile == "" {
+		return fmt.Errorf("process %q: kind daemon needs a pidfile", name)
+	}
+	if proc.Kind != "daemon" && (proc.Pidfile != "" || proc.StopCmd != "" || proc.LogFile != "") {
+		return fmt.Errorf("process %q: pidfile, stop_cmd and log_file only apply to kind: daemon", name)
 	}
 
 	if proc.Cmd == "" {
@@ -56,12 +81,59 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 		}
 	}
 
+	switch proc.Restart {
+	case "", "never", "on-failure", "always":
+	default:
+		return fmt.Errorf("process %q: restart must be 'never', 'on-failure' or 'always', got %q", name, proc.Restart)
+	}
+	if proc.Retries < 0 {
+		return fmt.Errorf("process %q: retries must not be negative", name)
+	}
+	if proc.Backoff != "" {
+		for _, part := range strings.Split(proc.Backoff, "..") {
+			if _, err := time.ParseDuration(strings.TrimSpace(part)); err != nil {
+				return fmt.Errorf("process %q: backoff must be '<duration>' or '<min>..<max>', got %q", name, proc.Backoff)
+			}
+		}
+	}
+	switch proc.OnDepRestart {
+	case "", "restart", "ignore":
+	default:
+		return fmt.Errorf("process %q: on_dep_restart must be 'restart' or 'ignore', got %q", name, proc.OnDepRestart)
+	}
+
+	if len(proc.Inputs) > 0 && !proc.IsOneshot() {
+		return fmt.Errorf("process %q: inputs only apply to kind: oneshot", name)
+	}
+
+	if s := proc.Signals; s != nil {
+		if s.Preset == "" && s.Rebuilding == "" && s.Rebuilt == "" && s.RebuildFailed == "" {
+			return fmt.Errorf("process %q: signals needs a preset or at least one of rebuilding, rebuilt, rebuild_failed", name)
+		}
+		if _, err := signals.Resolve(s.Preset, s.Rebuilding, s.Rebuilt, s.RebuildFailed); err != nil {
+			return fmt.Errorf("process %q: signals: %w", name, err)
+		}
+	}
+	if h := proc.Health; h != nil {
+		if len(h.Checks) == 0 {
+			return fmt.Errorf("process %q: health.checks must contain at least one check", name)
+		}
+		for i, c := range h.Checks {
+			if err := validateCheckKind(name, "health", i, c, false); err != nil {
+				return err
+			}
+		}
+		if h.Failures < 0 {
+			return fmt.Errorf("process %q: health.failures must not be negative", name)
+		}
+	}
+
 	if proc.OnExit != "" && proc.OnExit != "fail" && proc.OnExit != "ignore" {
 		return fmt.Errorf("process %q: on_exit must be 'fail' or 'ignore', got %q", name, proc.OnExit)
 	}
 
 	if proc.Readiness != nil {
-		if err := validateReadiness(name, proc.Readiness, proc.IsOneshot()); err != nil {
+		if err := validateReadiness(name, proc.Readiness, proc.IsOneshot() || proc.Kind == "daemon", proc.Captures); err != nil {
 			return err
 		}
 	}
@@ -69,6 +141,15 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 	for i, cap := range proc.Captures {
 		if err := validateCapture(name, i, cap); err != nil {
 			return err
+		}
+	}
+
+	for i, pattern := range proc.FailOn {
+		if pattern == "" {
+			return fmt.Errorf("process %q: fail_on[%d] is empty", name, i)
+		}
+		if _, err := regexp.Compile(pattern); err != nil {
+			return fmt.Errorf("process %q: fail_on[%d] invalid regex %q: %w", name, i, pattern, err)
 		}
 	}
 
@@ -90,7 +171,7 @@ func validateProcess(name string, proc Process, names map[string]bool, profile P
 	return nil
 }
 
-func validateReadiness(name string, r *Readiness, isOneshot bool) error {
+func validateReadiness(name string, r *Readiness, isOneshot bool, captures []Capture) error {
 	if r.Timeout.Duration <= 0 {
 		return fmt.Errorf("process %q: readiness.timeout is required and must be positive", name)
 	}
@@ -104,24 +185,64 @@ func validateReadiness(name string, r *Readiness, isOneshot bool) error {
 	}
 
 	for i, check := range r.Checks {
-		if check.Log == "" && check.TCP == "" {
-			return fmt.Errorf("process %q: readiness.checks[%d] must specify either 'log' or 'tcp'", name, i)
+		if err := validateCheckKind(name, "readiness", i, check, true); err != nil {
+			return err
 		}
-		if check.Log != "" && check.TCP != "" {
-			return fmt.Errorf("process %q: readiness.checks[%d] must specify only one of 'log' or 'tcp'", name, i)
+		if check.Capture != "" {
+			found := false
+			for _, c := range captures {
+				if c.Name == check.Capture {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("process %q: readiness.checks[%d] capture %q is not one of this process's captures", name, i, check.Capture)
+			}
 		}
 		if check.Log != "" {
 			if _, err := regexp.Compile(check.Log); err != nil {
 				return fmt.Errorf("process %q: readiness.checks[%d] invalid log regex %q: %w", name, i, check.Log, err)
 			}
 		}
-		if check.TCP != "" {
-			if !strings.Contains(check.TCP, ":") {
-				return fmt.Errorf("process %q: readiness.checks[%d] tcp must be 'host:port', got %q", name, i, check.TCP)
-			}
-		}
 	}
 
+	return nil
+}
+
+// validateCheckKind checks that a readiness or health check has exactly one
+// kind and that tcp/http values are well formed. Log and capture checks
+// only make sense for readiness.
+func validateCheckKind(name, where string, i int, check Check, readiness bool) error {
+	kinds := "'log', 'tcp', 'capture', 'http', 'exec' or 'file'"
+	values := []string{check.Log, check.TCP, check.Capture, check.HTTP, check.Exec, check.File}
+	if !readiness {
+		kinds = "'tcp', 'http', 'exec' or 'file'"
+		if check.Log != "" || check.Capture != "" {
+			return fmt.Errorf("process %q: %s.checks[%d] can only use %s", name, where, i, kinds)
+		}
+	}
+	set := 0
+	for _, v := range values {
+		if v != "" {
+			set++
+		}
+	}
+	if set == 0 {
+		return fmt.Errorf("process %q: %s.checks[%d] must specify one of %s", name, where, i, kinds)
+	}
+	if set > 1 {
+		return fmt.Errorf("process %q: %s.checks[%d] must specify only one of %s", name, where, i, kinds)
+	}
+	if check.TCP != "" && !strings.Contains(check.TCP, ":") {
+		return fmt.Errorf("process %q: %s.checks[%d] tcp must be 'host:port', got %q", name, where, i, check.TCP)
+	}
+	if check.HTTP != "" && !strings.HasPrefix(check.HTTP, "http://") && !strings.HasPrefix(check.HTTP, "https://") {
+		return fmt.Errorf("process %q: %s.checks[%d] http must be an http:// or https:// URL, got %q", name, where, i, check.HTTP)
+	}
+	if check.Status != 0 && check.HTTP == "" {
+		return fmt.Errorf("process %q: %s.checks[%d] status only applies to http checks", name, where, i)
+	}
 	return nil
 }
 
@@ -204,7 +325,70 @@ func detectCycles(processes map[string]Process) error {
 
 // validateCaptureRefs checks that all ${producer.capture} references in env values
 // and cmd strings point to actual captures defined on the named process.
-func validateCaptureRefs(processes map[string]Process) error {
+var portName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// validatePortRefs checks every ${port.<name>} in the profile's processes.
+func validatePortRefs(profile Profile) error {
+	for name, proc := range profile.Processes {
+		data, err := yaml.Marshal(proc)
+		if err != nil {
+			return err
+		}
+		for _, m := range PortRef.FindAllStringSubmatch(string(data), -1) {
+			if _, ok := profile.Ports[m[1]]; !ok {
+				return fmt.Errorf("process %q: reference ${port.%s} refers to unknown port %q (ports: %s)",
+					name, m[1], m[1], strings.Join(sortedPortNames(profile.Ports), ", "))
+			}
+		}
+	}
+	return nil
+}
+
+func sortedPortNames(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	if len(out) == 0 {
+		out = append(out, "none declared")
+	}
+	return out
+}
+
+// PortRef matches ${port.<name>}.
+var PortRef = regexp.MustCompile(`\$\{port\.([A-Za-z0-9_-]+)\}`)
+
+// SubstitutePorts replaces ${port.<name>} in every string of the profile's
+// processes with the allocated port.
+func SubstitutePorts(profile Profile, ports map[string]int) (Profile, error) {
+	if len(profile.Ports) == 0 {
+		return profile, nil
+	}
+	out := profile
+	out.Processes = make(map[string]Process, len(profile.Processes))
+	for name, proc := range profile.Processes {
+		data, err := yaml.Marshal(proc)
+		if err != nil {
+			return profile, err
+		}
+		text := PortRef.ReplaceAllStringFunc(string(data), func(m string) string {
+			sub := PortRef.FindStringSubmatch(m)
+			if p, ok := ports[sub[1]]; ok {
+				return strconv.Itoa(p)
+			}
+			return m
+		})
+		var p Process
+		if err := yaml.Unmarshal([]byte(text), &p); err != nil {
+			return profile, fmt.Errorf("process %q: %w", name, err)
+		}
+		out.Processes[name] = p
+	}
+	return out, nil
+}
+
+func validateCaptureRefs(processes map[string]Process, ports map[string]int) error {
 	captureIndex := make(map[string]map[string]bool)
 	for name, proc := range processes {
 		caps := make(map[string]bool, len(proc.Captures))
@@ -214,8 +398,6 @@ func validateCaptureRefs(processes map[string]Process) error {
 		captureIndex[name] = caps
 	}
 
-	refPattern := regexp.MustCompile(`\$\{([^}]+)\}`)
-
 	for name, proc := range processes {
 		var valuesToCheck []string
 		valuesToCheck = append(valuesToCheck, proc.Cmd)
@@ -224,11 +406,23 @@ func validateCaptureRefs(processes map[string]Process) error {
 		}
 
 		for _, val := range valuesToCheck {
-			matches := refPattern.FindAllStringSubmatch(val, -1)
-			for _, m := range matches {
-				ref := m[1]
+			// Use the same lexer as interpolation, so $$ escapes are honored.
+			tokens, err := interpolate.Tokenize(val)
+			if err != nil {
+				return fmt.Errorf("process %q: %w", name, err)
+			}
+			for _, tok := range tokens {
+				if tok.Literal {
+					continue
+				}
+				ref := tok.Value
 				if strings.HasPrefix(ref, "envrc.") {
 					continue
+				}
+				if strings.HasPrefix(ref, "port.") {
+					if _, ok := ports[strings.TrimPrefix(ref, "port.")]; ok {
+						continue
+					}
 				}
 				parts := strings.SplitN(ref, ".", 2)
 				if len(parts) != 2 {

@@ -1,0 +1,8 @@
+profiles:
+  p:
+    processes:
+      app:
+        # IEx, rails console, psql, REPLs: the prompt has no newline.
+        cmd: |-
+          printf 'Erlang/OTP 26 [erts-14.2] [64-bit]\r\n\r\nInteractive Elixir (1.17.3) - press Ctrl+C to exit\r\niex(1)> '; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 3s, checks: [{log: 'iex\(1\)> $'}]}

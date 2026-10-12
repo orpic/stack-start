@@ -1,0 +1,15 @@
+profiles:
+  p:
+    processes:
+      query:
+        kind: oneshot
+        # psql, git, mysql, man page their output when they see a terminal.
+        cmd: |-
+          if [ "$PAGER" = cat ]; then echo 'result row 1'; else printf 'result row 1\n(END)'; exec perl -e 'sleep 300' ${TOKEN}; fi; echo "PAGER=$PAGER GIT_PAGER=$GIT_PAGER PSQL_PAGER=$PSQL_PAGER MANPAGER=$MANPAGER SYSTEMD_PAGER=[$SYSTEMD_PAGER]"
+        readiness: {timeout: 5s}
+  custom:
+    processes:
+      query:
+        kind: oneshot
+        cmd: echo "PAGER=$PAGER"
+        env: {PAGER: more}

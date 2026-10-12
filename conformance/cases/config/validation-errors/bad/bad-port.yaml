@@ -1,0 +1,4 @@
+profiles:
+  p:
+    ports: {web: 70000}
+    processes: {a: {cmd: x}}

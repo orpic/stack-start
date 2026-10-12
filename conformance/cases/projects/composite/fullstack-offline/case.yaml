@@ -1,0 +1,29 @@
+name: "Composite stack offline: Postgres, Phoenix, Node API and React Router come up in order; the tunnel URL reaches Phoenix and the API"
+roadmap: "0.10, 0.11, 0.14"
+covers: [decoy-url, group-escape, child-tree, silent-port]
+project: test-projects
+requires: ["mix --version", "npm --version", "initdb --version"]
+timeout: 900s
+steps:
+  - port: {addr: "127.0.0.1:4110", open: false, timeout: 1s}
+  - port: {addr: "127.0.0.1:5545", open: false, timeout: 1s}
+  - run: up setup-all
+    id: setup
+    timeout: 600s
+    expect: {stderr_contains: "all processes finished"}
+  - start: up fullstack-offline
+  - wait_output: {id: up, stream: stderr, contains: "stackstart: all 7 processes ready", timeout: 300s}
+  - expect_output: {id: up, stream: stdout, in_order: ["postgres ", "migrate ", "phoenix "]}
+  - http: {url: "http://127.0.0.1:4110/tunnel", body_contains: "https://quiet-river-blue-moon.trycloudflare.com", timeout: 20s}
+  - http: {url: "http://127.0.0.1:3110/", body_contains: "\"publicUrl\":\"https://quiet-river-blue-moon.trycloudflare.com\"", timeout: 20s}
+  - http: {url: "http://127.0.0.1:5310/", body_contains: "React Router", timeout: 30s}
+  - run: status
+    expect: {stdout_contains: ["fullstack-offline", "phoenix(ready)", "api(ready)", "web(ready)", "tunnel(ready)", "postgres(ready)"]}
+  - run: down
+    timeout: 90s
+    expect: {stdout_contains: "Stopped \"fullstack-offline\" in ${WORK}."}
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:4110", open: false, timeout: 5s}
+  - port: {addr: "127.0.0.1:3110", open: false, timeout: 5s}
+  - port: {addr: "127.0.0.1:5310", open: false, timeout: 5s}
+  - port: {addr: "127.0.0.1:5545", open: false, timeout: 5s}

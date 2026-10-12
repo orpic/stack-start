@@ -1,0 +1,21 @@
+name: "npm run dev: npm, node and node's own child are all stopped"
+roadmap: "0.12"
+covers: [child-tree]
+home: real
+requires: ["npm --version"]
+timeout: 60s
+steps:
+  - write_file: {path: package.json, content: '{"name":"rw","version":"1.0.0","scripts":{"dev":"node server.js"}}'}
+  - write_file:
+      path: server.js
+      content: |
+        require("child_process").spawn("perl", ["-e", "sleep 300", "npmchild-${TOKEN}"], {stdio: "ignore"});
+        console.log("npm child ready");
+        setInterval(() => {}, 1000);
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 30s}
+  - process: {matches: "^perl -e sleep 300 npmchild-${TOKEN}$", count: 1, timeout: 5s}
+  - run: down
+    timeout: 30s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 5s}

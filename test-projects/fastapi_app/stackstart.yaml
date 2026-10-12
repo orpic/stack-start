@@ -1,0 +1,29 @@
+# FastAPI served by uvicorn with --reload. Port: 8200.
+profiles:
+  # Create the virtualenv and install dependencies: stackstart up setup
+  setup:
+    processes:
+      venv:
+        kind: oneshot
+        cmd: python3 -m venv .venv
+        readiness: {timeout: 120s}
+      install:
+        kind: oneshot
+        cmd: .venv/bin/pip install --disable-pip-version-check -r requirements.txt
+        depends_on: [venv]
+        readiness: {timeout: 300s}
+
+  dev:
+    processes:
+      api:
+        # uvicorn logs to stderr. --reload runs the app in a child process
+        # that WatchFiles restarts on every change.
+        cmd: .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8200
+        signals: {preset: uvicorn}
+        fail_on:
+          - "address already in use"
+        readiness:
+          timeout: 60s
+          checks:
+            - log: "Application startup complete"
+            - tcp: 127.0.0.1:8200

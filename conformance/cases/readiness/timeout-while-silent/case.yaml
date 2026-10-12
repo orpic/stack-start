@@ -1,0 +1,7 @@
+name: the readiness timeout fires on time while the process is silent
+roadmap: "0.4"
+notes: "fails on v0.2.3: a silent process waited forever"
+steps:
+  - start: up p
+  - wait_exit: {id: up, exit: 1, timeout: 15s, within: 6s}
+  - expect_output: {id: up, stream: stderr, contains: "readiness timeout after 1s; still waiting for tcp 127.0.0.1:1"}

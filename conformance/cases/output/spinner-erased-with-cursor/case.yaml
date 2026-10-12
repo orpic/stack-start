@@ -1,0 +1,11 @@
+name: a spinner that erases itself with cursor-to-column-1 leaves no stray characters
+roadmap: "0.5"
+covers: [spinner]
+notes: "found 2026-10-11 with npm in node_api: every npm command left a lone '\\' line; fails before that fix"
+steps:
+  - run: up p
+    expect:
+      stdout_not_contains: ["app | \\\n", "app | |\n", "app | /\n"]
+      stderr_contains: "all processes finished"
+  - run: logs app
+    expect: {stdout_equals: "> node_api@1.0.0 build\n> tsc -p .\n\nbuilt\nnext\n"}

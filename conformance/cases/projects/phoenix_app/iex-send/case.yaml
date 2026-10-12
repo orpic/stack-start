@@ -1,0 +1,19 @@
+name: "Phoenix in IEx: send recompile to the running BEAM and read its answer"
+roadmap: "1.6"
+covers: [stdin, prompt]
+project: test-projects/phoenix_app
+requires: ["iex --version", "initdb --version", "test -d deps"]
+timeout: 400s
+steps:
+  - port: {addr: "127.0.0.1:4100", open: false, timeout: 1s}
+  - run: up iex -d
+    timeout: 200s
+  - run: send phoenix "recompile()" --echo 5s
+    timeout: 30s
+    expect: {stdout_matches: ':(noop|ok)'}
+  - run: send phoenix "Application.started_applications() |> length() |> Kernel.>(5)" --echo 2s
+    expect: {stdout_contains: "true"}
+  - run: down
+    timeout: 60s
+  - port: {addr: "127.0.0.1:4100", open: false, timeout: 5s}
+  - port: {addr: "127.0.0.1:5544", open: false, timeout: 5s}

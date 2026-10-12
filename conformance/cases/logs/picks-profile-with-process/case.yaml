@@ -1,0 +1,15 @@
+name: with several finished runs, logs picks the profile that has the process, or asks for --profile
+roadmap: "0.7"
+steps:
+  - run: up one
+    expect: {exit: 1}
+  - run: up two
+    expect: {exit: 1}
+  - run: logs onlyhere
+    expect: {stdout_equals: "from-onlyhere\n"}
+  - run: logs shared
+    expect:
+      exit: 4
+      stderr_contains: ["more than one stackstart session matches this directory; pass --profile <name>:", "  --profile one  ${WORK}", "  --profile two  ${WORK}"]
+  - run: logs shared --profile two
+    expect: {stdout_equals: "shared in two\n"}

@@ -1,0 +1,14 @@
+profiles:
+  p:
+    processes:
+      api:
+        cmd: |-
+          exec perl -e 'sleep 300' api-${TOKEN}
+        health:
+          interval: 100ms
+          failures: 2
+          checks:
+            - exec: test ! -f down
+      other:
+        cmd: |-
+          exec perl -e 'sleep 300' other-${TOKEN}

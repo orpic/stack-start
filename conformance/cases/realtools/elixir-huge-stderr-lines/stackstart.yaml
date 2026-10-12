@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          elixir -e 'require Logger; Logger.error(String.duplicate("y", 20_000)); IO.puts(:stderr, String.duplicate("z", 150_000)); IO.puts("after long line"); Process.sleep(:infinity)'
+        readiness: {timeout: 30s, checks: [{log: after long line}]}

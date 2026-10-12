@@ -1,0 +1,19 @@
+profiles:
+  p:
+    processes:
+      db:
+        cmd: docker run --rm --name ss-${TOKEN} -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:${PORT_pg}:5432 postgres:16
+        stop_grace_period: 20s
+        readiness:
+          timeout: 90s
+          checks:
+            - log: 'listening on IPv4 address "0.0.0.0", port 5432'
+      query:
+        kind: oneshot
+        cmd: psql -h 127.0.0.1 -p ${PORT_pg} -U postgres -c 'select 40 + 2 as answer'
+        depends_on: [db]
+        # Postgres logs "listening on IPv4" about 50 ms before it accepts
+        # queries ("the database system is starting up"); retry through it.
+        restart: on-failure
+        retries: 10
+        backoff: 200ms

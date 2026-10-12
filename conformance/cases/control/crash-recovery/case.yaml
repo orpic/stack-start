@@ -1,0 +1,20 @@
+name: a crashed process comes back; only dependents whose captured input changed restart
+roadmap: "1.2, 1.4"
+notes: "owner decision Q2: restart dependents only if a captured value they use changed"
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq", USES: "sessions[0].processes[name=uses_url].pid", IGN: "sessions[0].processes[name=ignores].pid", STABLE: "sessions[0].processes[name=uses_stable].pid", URL1: "sessions[0].processes[name=tunnel].captures.url"}
+  # Make the tunnel crash; its policy restarts it with a new URL.
+  - write_file: {path: crash, content: "now"}
+  - run: wait tunnel --for event:process_backoff --after ${SEQ} --timeout 10s
+  - run: wait uses_url --for event:process_ready --after ${SEQ} --timeout 10s
+  - run: status --json
+    expect:
+      stdout_json: {"sessions[0].processes[name=ignores].pid": "${IGN}", "sessions[0].processes[name=uses_stable].pid": "${STABLE}", "sessions[0].processes[name=tunnel].restarts": 1}
+      stdout_json_not: {"sessions[0].processes[name=uses_url].pid": "${USES}", "sessions[0].processes[name=tunnel].captures.url": "${URL1}"}
+  - run: logs uses_url --no-follow
+    expect: {stdout_matches: '(?s)^got https://t1\.example\.com\ngot https://t2\.example\.com\n$'}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

@@ -1,0 +1,9 @@
+name: closing the terminal (SIGHUP) stops the stack instead of orphaning it
+roadmap: "0.12"
+notes: "fails on v0.2.3: up died on SIGHUP and its processes kept running"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
+  - signal: {id: up, sig: HUP}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

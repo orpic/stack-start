@@ -1,0 +1,22 @@
+profiles:
+  p:
+    processes:
+      cloudflared:
+        # cloudflared's real success banner.
+        cmd: |-
+          echo 'INF Requesting new quick Tunnel on trycloudflare.com...'; echo 'INF +--------------------------------------------------------------------------------------------+'; echo 'INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |'; echo 'INF |  https://quiet-river-blue-moon.trycloudflare.com                                           |'; echo 'INF +--------------------------------------------------------------------------------------------+'; exec perl -e 'sleep 300' ${TOKEN}
+        readiness:
+          timeout: 30s
+          checks:
+            - capture: url
+        captures:
+          - name: url
+            log: "(https://[a-z0-9]+(?:-[a-z0-9]+)+\\.trycloudflare\\.com)"
+        fail_on:
+          - "failed to request quick Tunnel"
+      backend:
+        cmd: echo backend got $TUNNEL_URL; exec perl -e "sleep 300" ${TOKEN}
+        depends_on: [cloudflared]
+        env:
+          TUNNEL_URL: "${cloudflared.url}"
+        readiness: {timeout: 5s, checks: [{log: "backend got"}]}

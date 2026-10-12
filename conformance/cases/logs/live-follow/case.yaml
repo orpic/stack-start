@@ -1,0 +1,16 @@
+name: logs on a live stack shows the last 10 lines, then follows new ones until interrupted
+roadmap: "0.7"
+notes: "fails on v0.2.3: live logs started at the end of the file and showed no history"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 5s}
+  - start: logs app --follow
+  - wait_output: {id: logs, stream: stderr, contains: "==> app · p · ${WORK} · running (Ctrl-C to stop) <==", timeout: 5s}
+  - wait_output: {id: logs, stream: stdout, contains: "line 15\n", timeout: 5s}
+  - expect_output: {id: logs, stream: stdout, equals: "line 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nline 15\n"}
+  - write_file: {path: go, content: "go"}
+  - wait_output: {id: logs, stream: stdout, contains: "line 16 after go\n", timeout: 5s}
+  - signal: {id: logs, sig: INT}
+  - wait_exit: {id: logs, exit: 0, timeout: 5s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}

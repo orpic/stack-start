@@ -1,0 +1,14 @@
+name: a port held on IPv6 only (::1) counts as taken
+roadmap: "4.1"
+ports: [web]
+requires: ["perl -MIO::Socket::IP -e 'IO::Socket::IP->new(LocalHost => q(::1), LocalPort => 0, Listen => 1) or exit 1'"]
+steps:
+  - spawn: |-
+      exec perl -MIO::Socket::IP -e '$s=IO::Socket::IP->new(LocalHost=>q(::1),LocalPort=>$ARGV[0],Listen=>5,ReuseAddr=>1) or die $!; $|=1; print qq(holding\n); while($c=$s->accept){close $c}' ${PORT_web}
+    id: squatter
+  - wait_output: {id: squatter, contains: holding, timeout: 5s}
+  - run: up p -d
+    timeout: 20s
+  - run: status --json
+    expect: {stdout_json_not: {"sessions[0].ports.web": "${PORT_web}"}}
+  - run: down

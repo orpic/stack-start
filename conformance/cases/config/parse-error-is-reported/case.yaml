@@ -1,0 +1,17 @@
+name: a stackstart.yaml that can't be parsed is reported, not treated as "no profile"
+roadmap: contract
+notes: "fails before 2026-10-11: up, validate and list said 'no profile named' / 'No profiles found' and hid the YAML error"
+steps:
+  - write_file:
+      path: stackstart.yaml
+      content: "profiles:\n  p:\n    processes:\n      app:\n        cmd: echo (own group: 1)\n"
+  - run: up p
+    expect: {exit: 2, stderr_contains: "parsing ${WORK}/stackstart.yaml: "}
+  - run: validate p
+    expect: {exit: 2, stderr_contains: "parsing ${WORK}/stackstart.yaml: "}
+  - run: list
+    expect: {exit: 2, stderr_contains: "parsing ${WORK}/stackstart.yaml: "}
+  - sh: mkdir sub
+  - run: list
+    cwd: sub
+    expect: {exit: 2, stderr_contains: "parsing ${WORK}/stackstart.yaml: "}

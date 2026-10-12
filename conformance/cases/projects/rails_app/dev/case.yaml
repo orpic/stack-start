@@ -1,0 +1,35 @@
+name: "Rails: setup installs gems and prepares the DB; foreman runs puma and the tailwind watcher; edits reload; down stops all three"
+roadmap: "0.12"
+covers: [child-tree, self-restart, oneshot]
+project: test-projects/rails_app
+requires: ["ruby -e 'exit(RUBY_VERSION >= \"3.2\" ? 0 : 1)'", "bundle --version"]
+timeout: 900s
+steps:
+  - port: {addr: "127.0.0.1:3200", open: false, timeout: 1s}
+  - run: up setup
+    id: setup
+    timeout: 700s
+    expect: {stderr_contains: "all processes finished"}
+  - start: up dev
+  - wait_output: {id: up, stream: stderr, contains: "1 process ready", timeout: 90s}
+  - expect_output: {id: up, stream: stdout, contains: ["web.1  | started with pid", "css.1  | started with pid"]}
+  - http: {url: "http://127.0.0.1:3200/", body_contains: "Hello from Rails", timeout: 20s}
+  # Zeitwerk and the view cache reload on the next request.
+  - edit_file: {path: app/views/home/index.html.erb, replace: {from: "Hello from Rails", to: "Hello again from Rails"}}
+  - http: {url: "http://127.0.0.1:3200/", body_contains: "Hello again from Rails", timeout: 20s}
+  # The tailwind watcher rebuilds on CSS changes.
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
+  - mark: {id: up, name: before-css}
+  - edit_file: {path: app/assets/tailwind/application.css, replace: {from: "@import \"tailwindcss\";", to: "@import \"tailwindcss\";\n.stackstart-case { color: red; }"}}
+  - wait_output: {id: up, stream: stdout, contains: "css.1  | Done in", plain: true, since: before-css, timeout: 30s}
+  - run: wait app --for rebuilt --after ${SEQ} --timeout 30s
+    expect: {stdout_contains: "rebuild_finished app"}
+  - run: down
+    timeout: 60s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:3200", open: false, timeout: 5s}
+  - run: logs app
+    expect:
+      stdout_in_order: ["* Listening on http://127.0.0.1:3200", "Completed 200 OK", "SIGTERM received, starting shutdown", "web.1  | Exiting"]
+      stdout_not_contains: "\e"

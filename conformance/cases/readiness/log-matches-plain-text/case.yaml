@@ -1,0 +1,9 @@
+name: log checks match the visible text, not escape codes or carriage returns
+roadmap: "0.6"
+covers: [spinner]
+notes: "fails on v0.2.3: '^downloaded$' never matched '\\r\\e[Kdownloaded'"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 5s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}

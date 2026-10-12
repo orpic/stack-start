@@ -1,0 +1,15 @@
+name: status lists running sessions with their processes' states, and says when there are none
+roadmap: v0
+steps:
+  - run: status
+    expect: {stdout_equals: "No running stackstart sessions.\n"}
+  - start: up p
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 10s}
+  - run: status
+    expect:
+      stdout_matches: '(?m)^PROFILE\s+PROJECT\s+PID\s+STARTED\s+PROCESSES\n'
+      stdout_contains: ["${WORK}", "db(ready)", "web(ready)"]
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: status
+    expect: {stdout_equals: "No running stackstart sessions.\n"}

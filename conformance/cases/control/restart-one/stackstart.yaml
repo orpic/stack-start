@@ -1,0 +1,14 @@
+profiles:
+  p:
+    processes:
+      a:
+        cmd: |-
+          echo a started; exec perl -e 'sleep 300' a-${TOKEN}
+      b:
+        cmd: |-
+          echo b started; exec perl -e 'sleep 300' b-${TOKEN}
+        depends_on: [a]
+        readiness: {timeout: 5s, checks: [{log: b started}]}
+      c:
+        cmd: |-
+          echo c started; exec perl -e 'sleep 300' c-${TOKEN}

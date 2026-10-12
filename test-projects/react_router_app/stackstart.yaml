@@ -1,0 +1,29 @@
+# React Router (framework mode) on Vite. Port: 5300.
+profiles:
+  # Install dependencies and typecheck: stackstart up setup
+  setup:
+    processes:
+      install:
+        kind: oneshot
+        cmd: npm ci --no-audit --no-fund
+        readiness: {timeout: 300s}
+      typecheck:
+        kind: oneshot
+        cmd: npm run typecheck
+        depends_on: [install]
+        readiness: {timeout: 120s}
+
+  dev:
+    processes:
+      web:
+        # Vite prints a Unicode banner ("➜  Local:") and hot-reloads modules
+        # in place; a config change restarts the server.
+        cmd: npm run dev -- --host 127.0.0.1 --port 5300 --strictPort
+        signals: {preset: vite}
+        fail_on:
+          - "Port 5300 is already in use"
+        readiness:
+          timeout: 60s
+          checks:
+            - log: "Local: +http://127.0.0.1:5300/"
+            - tcp: 127.0.0.1:5300

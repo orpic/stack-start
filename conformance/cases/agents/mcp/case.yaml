@@ -1,0 +1,37 @@
+name: the MCP server lists its tools and drives a stack through them (up, status, restart, logs, exec, down)
+roadmap: "5.3"
+timeout: 90s
+steps:
+  - sh: |-
+      {
+        echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"case","version":"1"}}}'
+        echo '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+        echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+        echo '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"up","arguments":{"profile":"p","cwd":"${WORK}"}}}'
+        echo '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"restart","arguments":{"process":"api","cwd":"${WORK}"}}}'
+        echo '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"logs","arguments":{"process":"api","cwd":"${WORK}"}}}'
+        echo '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"exec","arguments":{"process":"api","command":"echo using $URL","cwd":"${WORK}"}}}'
+        echo '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"restart","arguments":{"process":"ghost","cwd":"${WORK}"}}}'
+        echo '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"down","arguments":{"cwd":"${WORK}"}}}'
+        echo '{"jsonrpc":"2.0","id":9,"method":"nope"}'
+        echo '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"exec","arguments":{"process":"plain","profile":"p","command":"echo plain sees $PLAIN","cwd":"${WORK}"}}}'
+      } | "${BIN}" mcp
+    timeout: 60s
+    expect:
+      stdout_contains:
+        - '"id":1,"result":{"capabilities":{"tools":{}}'
+        - '"serverInfo":{"name":"stackstart"'
+        - '"name":"restart"'
+        - '"name":"exec"'
+        - '"inputSchema"'
+        - '\"profile\": \"p\"'
+        - '\"state\": \"ready\"'
+        - '\"ok\": true'
+        - 'api says hello'
+        - 'using https://mcp.example.com'
+        - 'process \"ghost\" not found'
+        - '"isError":true'
+        - 'Stopped \"p\" in ${WORK}.'
+        - '"id":9,"error":{"code":-32601,"message":"method not found: nope"}'
+        - 'plain sees set-in-config'
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

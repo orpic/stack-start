@@ -1,0 +1,26 @@
+profiles:
+  p:
+    processes:
+      web:
+        # Answers 503 for half a second, then 200 on /health.
+        cmd: |-
+          exec perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalAddr=>q(127.0.0.1),LocalPort=>$ARGV[0],Listen=>5,ReuseAddr=>1) or die $!; $t=time; while($c=$s->accept){ <$c>; my $code = (time - $t >= 1) ? q(200 OK) : q(503 Busy); print $c qq(HTTP/1.0 $code\r\nContent-Length: 2\r\n\r\nok); close $c }' ${PORT_web} ${TOKEN}
+        readiness: {timeout: 10s, checks: [{http: "http://127.0.0.1:${PORT_web}/health", status: 200}]}
+      worker:
+        cmd: |-
+          sleep 0.3; touch worker.ready; exec perl -e 'sleep 300' w-${TOKEN}
+        readiness: {timeout: 10s, checks: [{file: worker.ready}]}
+      db:
+        cmd: |-
+          sleep 0.3; touch db.up; exec perl -e 'sleep 300' d-${TOKEN}
+        readiness: {timeout: 10s, checks: [{exec: test -f db.up}]}
+  never:
+    processes:
+      web:
+        cmd: |-
+          exec perl -e 'sleep 300' n-${TOKEN}
+        readiness:
+          timeout: 1s
+          checks:
+            - http: "http://127.0.0.1:${PORT_web}/health"
+            - exec: test -f nope

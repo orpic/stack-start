@@ -1,0 +1,12 @@
+profiles:
+  p:
+    processes:
+      app:
+        # A watcher: rebuilds whenever the file "trigger" changes.
+        cmd: |-
+          echo watching; last=""; while :; do t=$(cat trigger 2>/dev/null); if [ -n "$t" ] && [ "$t" != "$last" ]; then last=$t; echo "rebuilding..."; sleep 0.1; if [ "$t" = fail ]; then echo "ERROR in src/main.ts: Unexpected token"; else echo "built in 100ms"; fi; fi; sleep 0.05; done # ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: "^watching$"}]}
+        signals:
+          rebuilding: '^rebuilding\.\.\.$'
+          rebuilt: '^built in \d+ms$'
+          rebuild_failed: '^ERROR in '

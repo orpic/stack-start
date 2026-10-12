@@ -1,0 +1,30 @@
+name: restart touches only the process and what depends on it; everything else keeps its PID
+roadmap: "1.2, 1.7"
+notes: "owner decision Q1: dependents are stopped and started with the process"
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: status --json
+    save_json: {A1: "sessions[0].processes[name=a].pid", B1: "sessions[0].processes[name=b].pid", C1: "sessions[0].processes[name=c].pid"}
+  - run: restart b
+    timeout: 20s
+    expect: {stdout_contains: "Restarted b: ready in"}
+  - run: status --json
+    save_json: {B2: "sessions[0].processes[name=b].pid"}
+    expect:
+      stdout_json: {"sessions[0].processes[name=a].pid": "${A1}", "sessions[0].processes[name=c].pid": "${C1}", "sessions[0].processes[name=b].restarts": 1, "sessions[0].processes[name=b].state": ready}
+      stdout_json_not: {"sessions[0].processes[name=b].pid": "${B1}"}
+  # Restarting a also restarts b, which depends on it; c is untouched.
+  - run: restart a --json
+    timeout: 20s
+    expect: {stdout_json: {ok: true, process: a, "targets[0]": b, "targets[1]": a}}
+  - run: status --json
+    expect:
+      stdout_json: {"sessions[0].processes[name=c].pid": "${C1}", "sessions[0].processes[name=a].state": ready, "sessions[0].processes[name=b].state": ready}
+      stdout_json_not: {"sessions[0].processes[name=a].pid": "${A1}", "sessions[0].processes[name=b].pid": "${B2}"}
+  - run: logs b --no-follow
+    expect: {stdout_equals: "b started\nb started\nb started\n"}
+  - run: restart ghost
+    expect: {exit: 2, stderr_contains: ["process \"ghost\" not found in profile \"p\"", "processes: a, b, c"]}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

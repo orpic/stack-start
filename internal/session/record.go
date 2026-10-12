@@ -12,34 +12,54 @@ type ProcessRecord struct {
 	Name      string `json:"name"`
 	PID       int    `json:"pid"`
 	LogFile   string `json:"log_file"`
+	RawLog    string `json:"raw_log_file,omitempty"`
 	StateFile string `json:"state_file"`
 }
 
+// Record describes one run of a profile. While the run is live it is the
+// session record (<slug>.json); a copy is kept in the run directory as
+// run.json and outlives the session.
 type Record struct {
-	Slug              string          `json:"slug"`
-	Profile           string          `json:"profile"`
-	ProjectPath       string          `json:"project_path"`
-	ConfigFile        string          `json:"config_file"`
-	StackstartPID     int             `json:"stackstart_pid"`
-	StackstartVersion string          `json:"stackstart_version"`
-	StartedAt         time.Time       `json:"started_at"`
-	LogDir            string          `json:"log_dir"`
-	Processes         []ProcessRecord `json:"processes"`
+	Slug              string     `json:"slug"`
+	Profile           string     `json:"profile"`
+	ProjectPath       string     `json:"project_path"`
+	ConfigFile        string     `json:"config_file"`
+	StackstartPID     int        `json:"stackstart_pid"`
+	StackstartVersion string     `json:"stackstart_version"`
+	RunID             string     `json:"run_id,omitempty"`
+	StartedAt         time.Time  `json:"started_at"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	Outcome           string     `json:"outcome,omitempty"`
+	FailedProcess     string     `json:"failed_process,omitempty"`
+	Cause             string     `json:"cause,omitempty"`
+	// Stopping is set once the stack has started to shut down, so a second
+	// 'down' waits instead of signalling again (which would force-kill).
+	Stopping bool `json:"stopping,omitempty"`
+	// ControlSocket is where the running stack accepts commands.
+	ControlSocket string `json:"control_socket,omitempty"`
+	// Detached is set for stacks started with up -d.
+	Detached bool `json:"detached,omitempty"`
+	// ConsoleLog is the console output of a detached stack.
+	ConsoleLog string `json:"console_log,omitempty"`
+	// Ports are the stack's allocated port variables.
+	Ports map[string]int `json:"ports,omitempty"`
+	// EventsFile is the run's events.jsonl.
+	EventsFile string          `json:"events_file,omitempty"`
+	LogDir     string          `json:"log_dir"`
+	Processes  []ProcessRecord `json:"processes"`
 }
 
-// WriteRecord writes the session record JSON to disk.
+// WriteRecord writes the session record JSON to disk atomically, so readers
+// in other shells never see a half-written file.
 func WriteRecord(rec Record) error {
 	dir := filepath.Dir(SessionRecordPath(rec.Slug))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("creating session dir: %w", err)
 	}
-
-	data, err := json.MarshalIndent(rec, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshaling session record: %w", err)
+	if err := writeJSONAtomic(SessionRecordPath(rec.Slug), rec); err != nil {
+		return fmt.Errorf("writing session record: %w", err)
 	}
-
-	return os.WriteFile(SessionRecordPath(rec.Slug), data, 0644)
+	return nil
 }
 
 // ReadRecord reads a session record from the given path.
@@ -55,11 +75,11 @@ func ReadRecord(path string) (Record, error) {
 	return rec, nil
 }
 
-// RemoveRecord deletes the session record, lock, and per-session directory.
+// RemoveRecord deletes the live session record and lock. Run directories,
+// with their logs, are kept; see PruneRuns and `stackstart clean`.
 func RemoveRecord(slug string) {
 	_ = os.Remove(SessionRecordPath(slug))
 	_ = os.Remove(SessionLockPath(slug))
-	_ = os.RemoveAll(SessionDir(slug))
 }
 
 // ReadProcessState reads the state string from a process state file.

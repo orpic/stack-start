@@ -1,22 +1,33 @@
+// Package orchestrator runs a profile: it starts processes in dependency
+// order, reacts to their readiness, failures and exits, and accepts commands
+// (start, stop, restart, send, status, ...) on a control socket while the
+// stack runs. One goroutine (the loop) owns all process state; everything
+// else talks to it through channels.
 package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/fatih/color"
 
 	captureLib "github.com/orpic/stack-start/internal/capture"
 	"github.com/orpic/stack-start/internal/config"
-	"github.com/orpic/stack-start/internal/env"
-	"github.com/orpic/stack-start/internal/interpolate"
+	"github.com/orpic/stack-start/internal/control"
+	"github.com/orpic/stack-start/internal/events"
 	"github.com/orpic/stack-start/internal/logmux"
 	"github.com/orpic/stack-start/internal/session"
 	"github.com/orpic/stack-start/internal/supervisor"
-	tmplPkg "github.com/orpic/stack-start/internal/template"
 	"github.com/orpic/stack-start/internal/version"
 )
 
@@ -28,307 +39,340 @@ type Config struct {
 	ConfigFile  string
 	LogFormat   string
 	Quiet       bool
+	// KeepGoing keeps the stack up when a required process fails: its
+	// dependents are blocked and everything else keeps running.
+	KeepGoing bool
+	// Detached marks a stack started with up -d.
+	Detached bool
+	// Console receives process output and Notices stackstart's own lines.
+	// They default to stdout and stderr. OpenConsole, if set, is called once
+	// the run directory exists and replaces both (detached stacks write
+	// their console to a file in the run directory).
+	Console     io.Writer
+	Notices     io.Writer
+	OpenConsole func(runDir string) (io.Writer, string, error)
+	// Preset holds captured values given on the command line (--set) for
+	// processes that were skipped.
+	Preset map[string]map[string]string
+	// NoCache runs oneshots even when their inputs are unchanged.
+	NoCache bool
+	// Ports are the allocated port variables (shown in status).
+	Ports map[string]int
+}
+
+// ErrForceKilled is returned when the stack was killed on request (a second
+// Ctrl-C or down --force); the CLI exits 130.
+var ErrForceKilled = errors.New("killed")
+
+// Process states.
+const (
+	sPending  = "pending"
+	sBlocked  = "blocked"
+	sStarting = "starting"
+	sReady    = "ready"
+	sBackoff  = "backoff"
+	sStopping = "stopping"
+	sStopped  = "stopped"
+	sFailed   = "failed"
+	sExited   = "exited"
+	sDegraded = "degraded"
+)
+
+// proc is the loop's view of one process.
+type proc struct {
+	name string
+	cfg  config.Process
+	sup  *supervisor.Supervisor
+	// gen increases every time the process is started or its instance is
+	// retired, so events from an old instance are recognised and ignored.
+	gen       int
+	state     string
+	attempt   int // consecutive failed attempts (reset when ready)
+	restarts  int
+	pid       int
+	startedAt time.Time
+	readyAt   time.Time
+	lastExit  *control.ExitStatus
+	cause     string
+	lastLines []string
+	blockedBy string
+	// expectStop marks a stop we asked for, so its exit is not a crash.
+	expectStop bool
+	// recovering is set while the retry policy brings the process back, so
+	// dependents are restarted if a captured value they use changed.
+	recovering bool
+	// inputs are the captured values the process was started with.
+	inputs     map[string]string
+	inputsHash string // fingerprint of a oneshot's inputs at this start
+	retryTimer *time.Timer
+	// healthCancel stops the current instance's health checks.
+	healthCancel context.CancelFunc
+	healthFails  int
+	// retiring: an old instance is still being stopped (failure or retry).
+	retiring bool
+
+	logPath string
+	rawPath string
+	logFile *logmux.LogFile
+	rawFile *os.File
 }
 
 // Orchestrator manages the lifecycle of all processes in a profile.
 type Orchestrator struct {
-	cfg         Config
-	supervisors map[string]*supervisor.Supervisor
-	registry    *captureLib.Registry
-	events      chan supervisor.Event
-	consoleMu   sync.Mutex
-	logger      *slog.Logger
-	lock        *session.Lock
-	slug        string
+	cfg      Config
+	registry *captureLib.Registry
+	logger   *slog.Logger
+	lock     *session.Lock
+	slug     string
+	runDir   string
+	rec      session.Record
+	ev       *events.Log
+	console  io.Writer
+	notices  io.Writer
+	padTo    int
+	startGit *control.GitInfo
+
+	consoleMu sync.Mutex
+
+	// procMu guards the procs map's supervisors for ForceKill, which runs
+	// outside the loop.
+	procMu sync.Mutex
+	procs  map[string]*proc
+	order  []string // sorted names
+
+	supEvents chan supervisor.Event
+	cmds      chan *command
+	retries   chan retryTick
+	health    chan healthResult
+	rebuilds  map[string]*rebuildStats
+	stopDone  chan int
+	plans     map[int]func()
+	nextPlan  int
+
+	listener   net.Listener
+	socketPath string
+	done       chan struct{} // closed when the run is over
+
+	stopping atomic.Bool // set once the stack has started to shut down
+	forced   atomic.Bool // ForceKill was called
+
+	// portHolders: process -> "port N is in use by pid X (cmd)" found
+	// before the start; shown if the process fails.
+	portHolders map[string][]string
+
+	announced bool
+	allReady  bool
+	finished  bool
+	result    error
+}
+
+type retryTick struct {
+	name string
+	gen  int
 }
 
 func New(cfg Config) *Orchestrator {
 	return &Orchestrator{
-		cfg:         cfg,
-		supervisors: make(map[string]*supervisor.Supervisor),
-		registry:    captureLib.NewRegistry(),
-		events:      make(chan supervisor.Event, 64),
+		cfg:       cfg,
+		registry:  captureLib.NewRegistry(),
+		procs:     make(map[string]*proc),
+		supEvents: make(chan supervisor.Event, 256),
+		cmds:      make(chan *command),
+		retries:   make(chan retryTick, 16),
+		health:    make(chan healthResult, 16),
+		rebuilds:  make(map[string]*rebuildStats),
+		stopDone:  make(chan int, 16),
+		plans:     make(map[int]func()),
 	}
 }
 
-// Run is the main orchestration loop.
+// Run starts the stack and returns when it has stopped.
 func (o *Orchestrator) Run(ctx context.Context) error {
 	o.slug = session.Slug(o.cfg.ProjectPath, o.cfg.ProfileName)
 
-	// Setup logger
-	o.setupLogger()
-
-	// Acquire session lock
 	lock, err := session.Acquire(o.slug)
 	if err != nil {
 		return fmt.Errorf("cannot start: %s", err)
 	}
 	o.lock = lock
-	defer o.cleanup()
+	defer o.lock.Release()
 
-	// Create session directory for logs
-	sessDir := session.SessionDir(o.slug)
-	if err := os.MkdirAll(sessDir, 0755); err != nil {
-		return fmt.Errorf("creating session directory: %w", err)
+	runID, runDir, err := session.NewRun(o.slug)
+	if err != nil {
+		return err
+	}
+	o.runDir = runDir
+	_ = session.PruneRuns(o.slug, session.DefaultKeepRuns, runID)
+
+	logClose := o.setupLogger()
+	defer logClose()
+
+	o.console, o.notices = o.cfg.Console, o.cfg.Notices
+	if o.console == nil {
+		o.console = os.Stdout
+	}
+	if o.notices == nil {
+		o.notices = os.Stderr
+	}
+	consoleLog := ""
+	if o.cfg.OpenConsole != nil {
+		w, path, err := o.cfg.OpenConsole(runDir)
+		if err != nil {
+			return err
+		}
+		o.console, o.notices, consoleLog = w, w, path
 	}
 
-	// Compute longest process name for padding
-	padTo := 0
-	for name := range o.cfg.Profile.Processes {
-		if len(name) > padTo {
-			padTo = len(name)
+	evPath := filepath.Join(runDir, "events.jsonl")
+	o.ev, err = events.Open(evPath)
+	if err != nil {
+		return err
+	}
+	defer o.ev.Close()
+
+	if err := o.listen(); err != nil {
+		return err
+	}
+	defer o.closeListener()
+
+	o.order = sortedNames(o.cfg.Profile.Processes)
+	for _, name := range o.order {
+		if len(name) > o.padTo {
+			o.padTo = len(name)
 		}
 	}
+	o.startGit = gitInfo(o.cfg.ProjectPath, "")
 
-	// Build dependency graph
-	depGraph := buildDepGraph(o.cfg.Profile.Processes)
+	o.rec = session.Record{
+		Slug:              o.slug,
+		Profile:           o.cfg.ProfileName,
+		ProjectPath:       o.cfg.ProjectPath,
+		ConfigFile:        o.cfg.ConfigFile,
+		StackstartPID:     os.Getpid(),
+		StackstartVersion: version.Version,
+		RunID:             runID,
+		StartedAt:         time.Now(),
+		Outcome:           session.OutcomeRunning,
+		LogDir:            runDir,
+		ControlSocket:     o.socketPath,
+		Detached:          o.cfg.Detached,
+		ConsoleLog:        consoleLog,
+		EventsFile:        evPath,
+		Ports:             o.cfg.Ports,
+	}
 
-	// Build supervisors
-	for name, proc := range o.cfg.Profile.Processes {
-		logFile, err := os.Create(filepath.Join(sessDir, name+".log"))
-		if err != nil {
+	for _, name := range o.order {
+		p := &proc{name: name, cfg: o.cfg.Profile.Processes[name], state: sPending}
+		p.logPath = filepath.Join(runDir, name+".log")
+		p.rawPath = filepath.Join(runDir, name+".raw.log")
+		if p.logFile, err = logmux.OpenLogFile(p.logPath); err != nil {
 			return fmt.Errorf("creating log file for %s: %w", name, err)
 		}
-		defer func() { _ = logFile.Close() }()
-
-		mux := logmux.New(name, padTo, logFile, os.Stdout, &o.consoleMu)
-
-		var captures []*captureLib.Capture
-		for _, capCfg := range proc.Captures {
-			cap, err := captureLib.New(capCfg.Name, capCfg.Log, capCfg.IsRequired())
-			if err != nil {
-				return fmt.Errorf("process %s: invalid capture regex: %w", name, err)
-			}
-			captures = append(captures, cap)
+		if p.rawFile, err = os.OpenFile(p.rawPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err != nil {
+			return fmt.Errorf("creating raw log file for %s: %w", name, err)
 		}
-
-		o.supervisors[name] = &supervisor.Supervisor{
-			Name:        name,
-			Proc:        proc,
-			ProjectPath: o.cfg.ProjectPath,
-			Mux:         mux,
-			Captures:    captures,
-			Registry:    o.registry,
-			Events:      o.events,
+		o.procs[name] = p
+		o.rebuilds[name] = &rebuildStats{}
+		o.rec.Processes = append(o.rec.Processes, session.ProcessRecord{
+			Name:      name,
+			LogFile:   p.logPath,
+			RawLog:    p.rawPath,
+			StateFile: o.stateFile(name),
+		})
+		_ = session.WriteProcessState(o.stateFile(name), sPending, 0)
+	}
+	defer func() {
+		for _, p := range o.procs {
+			_ = p.logFile.Close()
+			_ = p.rawFile.Close()
 		}
-	}
+	}()
+	o.writeRecord()
+	defer session.RemoveRecord(o.slug)
 
-	// Write session record
-	rec := o.buildSessionRecord(sessDir)
-	if err := session.WriteRecord(rec); err != nil {
-		o.logger.Error("failed to write session record", "error", err)
-	}
+	o.ev.Emit("run_started", "", map[string]any{
+		"profile": o.cfg.ProfileName, "project": o.cfg.ProjectPath, "run_id": runID,
+		"stackstart_version": version.Version, "detached": o.cfg.Detached, "keep_going": o.cfg.KeepGoing,
+	})
+	go o.serve()
 
-	// Track process states
-	states := make(map[string]supervisor.State, len(o.cfg.Profile.Processes))
-	for name := range o.cfg.Profile.Processes {
-		states[name] = supervisor.StatePending
-		stateFile := filepath.Join(sessDir, name+".state")
-		_ = session.WriteProcessState(stateFile, string(supervisor.StatePending), 0)
-	}
-
-	// Start root processes (those with no dependencies)
-	for name := range o.cfg.Profile.Processes {
-		if len(depGraph[name]) == 0 {
-			if err := o.startProcess(ctx, name, sessDir); err != nil {
-				return o.abort(ctx, name, err, sessDir, states)
-			}
+	for proc, caps := range o.cfg.Preset {
+		for k, v := range caps {
+			o.registry.Store(proc, k, v)
 		}
 	}
+	o.checkPorts()
+	o.schedule()
+	o.check()
 
-	// Event loop
-	for {
+	for !o.finished {
 		select {
 		case <-ctx.Done():
-			o.logger.Info("shutting down (context cancelled)")
-			o.shutdownAll(sessDir, states)
-			return nil
-
-		case evt := <-o.events:
-			prevState := states[evt.Process]
-			states[evt.Process] = evt.State
-			stateFile := filepath.Join(sessDir, evt.Process+".state")
-			pid := 0
-			if sup, ok := o.supervisors[evt.Process]; ok {
-				pid = sup.PID()
-			}
-			_ = session.WriteProcessState(stateFile, string(evt.State), pid)
-
-			switch evt.State {
-			case supervisor.StateReady:
-				o.logger.Info("process ready", "process", evt.Process)
-				for depName, deps := range depGraph {
-					if states[depName] != supervisor.StatePending {
-						continue
-					}
-					allReady := true
-					for _, dep := range deps {
-						if states[dep] != supervisor.StateReady {
-							allReady = false
-							break
-						}
-					}
-					if allReady {
-						if err := o.startProcess(ctx, depName, sessDir); err != nil {
-							return o.abort(ctx, depName, err, sessDir, states)
-						}
-					}
-				}
-
-				allReady := true
-				for _, s := range states {
-					if s != supervisor.StateReady && s != supervisor.StateExited {
-						allReady = false
-						break
-					}
-				}
-				if allReady {
-					o.logger.Info("all processes ready")
-				}
-
-			case supervisor.StateFailed:
-				proc := o.cfg.Profile.Processes[evt.Process]
-				if proc.IsRequired() {
-					return o.abort(ctx, evt.Process, evt.Err, sessDir, states)
-				}
-				o.logger.Warn("non-required process failed", "process", evt.Process, "error", evt.Err)
-
-			case supervisor.StateExited:
-				proc := o.cfg.Profile.Processes[evt.Process]
-				wasReady := prevState == supervisor.StateReady
-				if proc.OnExitPolicy() == "fail" && proc.IsRequired() {
-					errMsg := evt.Err
-					if wasReady {
-						msg := fmt.Sprintf("process %s exited unexpectedly post-ready", evt.Process)
-						if evt.Err != nil {
-							errMsg = fmt.Errorf("%s: %w", msg, evt.Err)
-						} else {
-							errMsg = fmt.Errorf("%s (exit 0)", msg)
-						}
-					} else {
-						if errMsg == nil {
-							errMsg = fmt.Errorf("process %s exited before becoming ready", evt.Process)
-						}
-					}
-					return o.abort(ctx, evt.Process, errMsg, sessDir, states)
-				}
-				o.logger.Info("process exited (ignored)", "process", evt.Process)
-
-				allExited := true
-				for _, s := range states {
-					if s != supervisor.StateExited && s != supervisor.StateFailed {
-						allExited = false
-						break
-					}
-				}
-				if allExited {
-					o.logger.Info("all processes have exited")
-					return nil
-				}
+			o.gracefulShutdown("signal")
+		case e := <-o.supEvents:
+			o.handleSupEvent(e)
+		case c := <-o.cmds:
+			o.handleCommand(c)
+		case t := <-o.retries:
+			o.handleRetry(t)
+		case r := <-o.health:
+			o.handleHealth(r)
+		case id := <-o.stopDone:
+			if then := o.plans[id]; then != nil {
+				delete(o.plans, id)
+				then()
 			}
 		}
-	}
-}
-
-func (o *Orchestrator) startProcess(ctx context.Context, name, sessDir string) error {
-	sup := o.supervisors[name]
-
-	// Compose environment
-	captures := o.registry.Snapshot()
-	processEnv, err := env.Compose(o.cfg.ProjectPath, sup.Proc.Env, captures)
-	if err != nil {
-		return fmt.Errorf("process %s: env composition failed: %w", name, err)
-	}
-
-	// Resolve cmd interpolation
-	envrcEnv, _ := env.LoadEnvrc(o.cfg.ProjectPath)
-	refData := interpolate.BuildRefData(captures, envrcEnv)
-	resolvedCmd, err := interpolate.Resolve(sup.Proc.Cmd, refData)
-	if err != nil {
-		return fmt.Errorf("process %s: cmd interpolation failed: %w", name, err)
-	}
-	sup.Proc.Cmd = resolvedCmd
-	sup.Env = processEnv
-
-	// Render templates before starting
-	for _, tmpl := range sup.Proc.Templates {
-		tmplData := buildTemplateData(captures, envrcEnv)
-		if err := tmplPkg.Render(o.cfg.ProjectPath, tmpl.Src, tmpl.Dst, tmplData); err != nil {
-			return fmt.Errorf("process %s: template render failed: %w", name, err)
+		if !o.finished {
+			o.check()
 		}
 	}
-
-	o.logger.Info("starting process", "process", name, "cmd", resolvedCmd)
-	return sup.Start(ctx)
+	if o.forced.Load() {
+		return ErrForceKilled
+	}
+	return o.result
 }
 
-func (o *Orchestrator) abort(ctx context.Context, failedProcess string, err error, sessDir string, states map[string]supervisor.State) error {
-	// Print root cause
-	msg := fmt.Sprintf("\n--- FAILED: %s ---\n", failedProcess)
-	if err != nil {
-		msg += fmt.Sprintf("Cause: %s\n", err)
-	}
-	if sup, ok := o.supervisors[failedProcess]; ok {
-		lastLog := sup.CopyLastLogPublic()
-		if len(lastLog) > 0 {
-			msg += "Last output:\n"
-			for _, line := range lastLog {
-				msg += fmt.Sprintf("  %s\n", line)
-			}
+// Stopping reports whether the stack has started to shut down (from a
+// signal, down, or a failure).
+func (o *Orchestrator) Stopping() bool { return o.stopping.Load() }
+
+// ForceKill immediately SIGKILLs every process group. Safe to call from a
+// signal handler while Run is in progress.
+func (o *Orchestrator) ForceKill() {
+	o.forced.Store(true)
+	o.procMu.Lock()
+	sups := make([]*supervisor.Supervisor, 0, len(o.procs))
+	for _, p := range o.procs {
+		if p.sup != nil {
+			sups = append(sups, p.sup)
 		}
 	}
-	fmt.Fprint(os.Stderr, msg)
-
-	o.shutdownAll(sessDir, states)
-	if err != nil {
-		return fmt.Errorf("process %s failed: %w", failedProcess, err)
-	}
-	return fmt.Errorf("process %s failed", failedProcess)
-}
-
-func (o *Orchestrator) shutdownAll(sessDir string, states map[string]supervisor.State) {
-	// Compute reverse dependency order
-	order := reverseDepOrder(o.cfg.Profile.Processes)
-
-	o.logger.Info("shutting down all processes", "order", order)
-
-	for _, name := range order {
-		sup, ok := o.supervisors[name]
-		if !ok {
-			continue
+	o.procMu.Unlock()
+	for _, s := range sups {
+		if s.Alive() {
+			s.Kill()
 		}
-		state := states[name]
-		if state == supervisor.StateExited || state == supervisor.StateFailed || state == supervisor.StatePending {
-			continue
-		}
-
-		proc := o.cfg.Profile.Processes[name]
-		o.logger.Info("stopping process", "process", name)
-		sup.Stop(proc.GracePeriod())
-
-		stateFile := filepath.Join(sessDir, name+".state")
-		_ = session.WriteProcessState(stateFile, string(supervisor.StateExited), sup.PID())
 	}
 }
 
-func (o *Orchestrator) cleanup() {
-	if o.lock != nil {
-		o.lock.Release()
-	}
-	session.RemoveRecord(o.slug)
-}
-
-func (o *Orchestrator) setupLogger() {
-	sessDir := session.SessionDir(o.slug)
-	_ = os.MkdirAll(sessDir, 0755)
-
-	logPath := filepath.Join(sessDir, "stackstart.log")
-	logFile, err := os.Create(logPath)
-	if err != nil {
-		o.logger = slog.Default()
+// notice prints a line from stackstart itself, keeping stdout for process
+// output.
+func (o *Orchestrator) notice(c *color.Color, msg string) {
+	if o.cfg.Quiet {
 		return
 	}
+	o.consoleMu.Lock()
+	defer o.consoleMu.Unlock()
+	_, _ = fmt.Fprintln(o.notices, c.Sprint("stackstart: "+msg))
+}
 
+func (o *Orchestrator) setupLogger() func() {
+	logFile, err := os.Create(filepath.Join(o.runDir, "stackstart.log"))
+	if err != nil {
+		o.logger = slog.Default()
+		return func() {}
+	}
 	var handler slog.Handler
 	if o.cfg.LogFormat == "json" {
 		handler = slog.NewJSONHandler(logFile, nil)
@@ -336,70 +380,109 @@ func (o *Orchestrator) setupLogger() {
 		handler = slog.NewTextHandler(logFile, nil)
 	}
 	o.logger = slog.New(handler)
+	return func() { _ = logFile.Close() }
 }
 
-func (o *Orchestrator) buildSessionRecord(sessDir string) session.Record {
-	var procs []session.ProcessRecord
-	for name := range o.cfg.Profile.Processes {
-		procs = append(procs, session.ProcessRecord{
-			Name:      name,
-			LogFile:   filepath.Join(sessDir, name+".log"),
-			StateFile: filepath.Join(sessDir, name+".state"),
-		})
-	}
+func (o *Orchestrator) stateFile(name string) string {
+	return filepath.Join(o.runDir, name+".state")
+}
 
-	return session.Record{
-		Slug:              o.slug,
-		Profile:           o.cfg.ProfileName,
-		ProjectPath:       o.cfg.ProjectPath,
-		ConfigFile:        o.cfg.ConfigFile,
-		StackstartPID:     os.Getpid(),
-		StackstartVersion: version.Version,
-		StartedAt:         time.Now(),
-		LogDir:            sessDir,
-		Processes:         procs,
+// setState changes a process's state and records it.
+func (o *Orchestrator) setState(p *proc, state string) {
+	p.state = state
+	_ = session.WriteProcessState(o.stateFile(p.name), state, p.pid)
+}
+
+// writeRecord writes the live session record and the run's run.json.
+func (o *Orchestrator) writeRecord() {
+	for i := range o.rec.Processes {
+		if p := o.procs[o.rec.Processes[i].Name]; p != nil {
+			o.rec.Processes[i].PID = p.pid
+		}
+	}
+	if err := session.WriteRecord(o.rec); err != nil {
+		o.logger.Error("failed to write session record", "error", err)
+	}
+	if err := session.WriteRunInfo(o.rec); err != nil {
+		o.logger.Error("failed to write run.json", "error", err)
 	}
 }
 
-// buildDepGraph returns a map of process -> list of dependencies.
-func buildDepGraph(processes map[string]config.Process) map[string][]string {
-	graph := make(map[string][]string, len(processes))
-	for name, proc := range processes {
-		graph[name] = proc.DependsOn
+func sortedNames(processes map[string]config.Process) []string {
+	names := make([]string, 0, len(processes))
+	for name := range processes {
+		names = append(names, name)
 	}
-	return graph
+	sort.Strings(names)
+	return names
+}
+
+// dependents returns every process that depends on name, directly or not.
+func (o *Orchestrator) dependents(name string) []string {
+	seen := map[string]bool{}
+	var walk func(string)
+	walk = func(n string) {
+		for _, other := range o.order {
+			if seen[other] {
+				continue
+			}
+			for _, d := range o.procs[other].cfg.DependsOn {
+				if d == n {
+					seen[other] = true
+					walk(other)
+					break
+				}
+			}
+		}
+	}
+	walk(name)
+	var out []string
+	for _, n := range o.order {
+		if seen[n] {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// stopOrder sorts names so dependents come before what they depend on.
+func (o *Orchestrator) stopOrder(names []string) []string {
+	want := map[string]bool{}
+	for _, n := range names {
+		want[n] = true
+	}
+	var order []string
+	for _, n := range reverseDepOrder(o.cfg.Profile.Processes) {
+		if want[n] {
+			order = append(order, n)
+		}
+	}
+	return order
 }
 
 // reverseDepOrder computes a shutdown order (reverse topological).
 func reverseDepOrder(processes map[string]config.Process) []string {
-	// Topological sort
 	var order []string
 	visited := make(map[string]bool)
-
 	var visit func(string)
 	visit = func(name string) {
 		if visited[name] {
 			return
 		}
 		visited[name] = true
-		proc, ok := processes[name]
-		if ok {
+		if proc, ok := processes[name]; ok {
 			for _, dep := range proc.DependsOn {
 				visit(dep)
 			}
 		}
 		order = append(order, name)
 	}
-
-	for name := range processes {
+	for _, name := range sortedNames(processes) {
 		visit(name)
 	}
-
-	// Reverse for shutdown order (dependents first)
 	for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
 		order[i], order[j] = order[j], order[i]
 	}
-
 	return order
 }
 

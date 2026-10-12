@@ -1,0 +1,8 @@
+profiles:
+  p:
+    processes:
+      app:
+        # nodemon / node --watch / code reloaders restarting inside one PID.
+        cmd: |-
+          echo '[nodemon] starting `node server.js`'; echo 'listening on 4000'; for i in 1 2; do sleep 0.2; printf '\033c[nodemon] restarting due to changes... (%s)\n' $i; echo 'listening on 4000'; done; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: "listening on 4000"}]}

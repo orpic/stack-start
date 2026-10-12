@@ -38,3 +38,7 @@ func (c *TCPCheck) Run(ctx context.Context) {
 func (c *TCPCheck) Satisfied() bool {
 	return c.matched.Load()
 }
+
+func (c *TCPCheck) String() string {
+	return "tcp " + c.Address
+}

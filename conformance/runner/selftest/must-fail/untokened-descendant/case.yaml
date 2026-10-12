@@ -1,0 +1,7 @@
+name: a descendant without the token is still found by process-tree tracking
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
+  - sleep: {duration: 300ms, reason: "let the sampler see the child"}
+  - signal: {id: up, sig: KILL}
+  - wait_exit: {id: up, timeout: 5s}

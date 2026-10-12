@@ -1,0 +1,11 @@
+profiles:
+  p:
+    processes:
+      other:
+        cmd: |-
+          echo other ran; exec perl -e 'sleep 300' ${TOKEN}
+      app:
+        depends_on: [other]
+        cmd: |-
+          echo ready; sleep 0.3; echo '** (Postgrex.Error) column "owner_ref" contains null values'; echo '    (ecto_sql) lib/ecto/migrator.ex:1: failed at 20260101_add_owner.exs'; exit 1
+        readiness: {timeout: 5s, checks: [{log: "^ready$"}]}

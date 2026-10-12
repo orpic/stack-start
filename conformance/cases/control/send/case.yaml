@@ -1,0 +1,18 @@
+name: send types into a running process and prints its answer
+roadmap: "1.6"
+covers: [stdin]
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: send repl "2 + 3"
+    expect: {stdout_contains: ["2 + 3", "= 5", "calc> "]}
+  - run: send repl "y" --json
+    expect: {stdout_json: {ok: true, process: repl}, stdout_contains: "= y"}
+  - run: send ghost hi
+    expect: {exit: 2, stderr_contains: "process \"ghost\" not found"}
+  - run: logs repl --no-follow
+    # The prompt has no newline, so it is flushed as its own line; the
+    # terminal's echo of the typed text follows it.
+    expect: {stdout_in_order: ["calc> \n", "2 + 3\n", "= 5\n", "calc> \n", "y\n", "= y\n"]}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

@@ -1,0 +1,22 @@
+name: failing health checks mark a ready process degraded, and passing ones make it healthy again
+roadmap: "2.6"
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
+  - write_file: {path: down, content: "x"}
+  - run: wait api --for event:process_degraded --after ${SEQ} --timeout 10s
+    expect: {stdout_contains: ["process_degraded api", "cause=exec test ! -f down: exit status 1"]}
+  - run: status --json
+    expect: {stdout_json: {"sessions[0].processes[name=api].state": degraded, "sessions[0].processes[name=other].state": ready}}
+  - run: status
+    expect: {stdout_contains: "api(degraded)"}
+  - run: status --json
+    save_json: {SEQ2: "sessions[0].events.last_seq"}
+  - sh: rm down
+  - run: wait api --for event:process_healthy --after ${SEQ2} --timeout 10s
+  - run: status --json
+    expect: {stdout_json: {"sessions[0].processes[name=api].state": ready, "sessions[0].processes[name=api].health_failures": 0}}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

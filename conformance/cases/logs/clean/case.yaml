@@ -1,0 +1,31 @@
+name: clean removes finished runs of this project only, never a live one; --dry-run lists them
+roadmap: "0.7"
+steps:
+  - run: up p
+    expect: {exit: 1}
+  - run: up p
+    expect: {exit: 1}
+  # Another project (its own git repo, so it is not "inside" this one).
+  - write_file: {path: other/stackstart.yaml, content: "profiles:\n  q:\n    processes:\n      app: {cmd: 'echo hi; exit 1'}\n"}
+  - sh: |-
+      mkdir other/.git && cd other && "${BIN}" up q; true
+  - start: up live
+    id: live
+  - wait_output: {id: live, contains: "1 process ready", timeout: 5s}
+  - run: clean --dry-run
+    expect:
+      stdout_matches: '(?m)^would remove  \S+  p  \S+  \(.*\)$'
+      stdout_contains: "Would remove 2 finished run(s)"
+      stdout_not_contains: ["  q  ", "  live  "]
+  - run: clean
+    expect: {stdout_contains: "Removed 2 finished run(s)"}
+  - run: logs app --profile p
+    expect: {exit: 3, stderr_contains: "no running or previous stackstart session found for ${WORK}"}
+  - run: clean --all --dry-run
+    expect: {stdout_contains: "Would remove 1 finished run(s)", stdout_not_contains: "  live  "}
+  - signal: {id: live, sig: TERM}
+  - wait_exit: {id: live, exit: 0, timeout: 15s}
+  - run: clean --all
+    expect: {stdout_contains: "Removed 2 finished run(s)"}
+  - run: clean
+    expect: {stdout_equals: "Removed 0 finished run(s), 0 B.\n"}

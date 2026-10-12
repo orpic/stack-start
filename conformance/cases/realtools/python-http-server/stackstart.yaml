@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      web:
+        cmd: /usr/bin/python3 -m http.server ${PORT_web} --bind 127.0.0.1
+        readiness: {timeout: 15s, checks: [{tcp: "127.0.0.1:${PORT_web}"}]}

@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          seq 1 5 | sed 's/^/line /'; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: "line 5"}]}

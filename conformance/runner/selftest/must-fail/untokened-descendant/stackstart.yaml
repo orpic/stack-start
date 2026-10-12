@@ -1,0 +1,5 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: "exec perl -e '$$SIG{HUP}=q(IGNORE); $$SIG{TERM}=q(IGNORE); sleep 30'"

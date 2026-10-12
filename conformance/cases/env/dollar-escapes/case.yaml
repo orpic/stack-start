@@ -1,0 +1,7 @@
+name: $$ is a literal dollar, $VAR is left to the shell, and ${process.capture} is interpolated
+roadmap: v0
+env: {FROM_SHELL: shell-value}
+steps:
+  - run: up p
+    expect:
+      stdout_contains: ["user | literal=$5 shell=shell-value braces=shell-value env=$9 cap=abc"]

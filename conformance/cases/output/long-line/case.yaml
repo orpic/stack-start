@@ -1,0 +1,16 @@
+name: a 200 KB line is logged in full, split into 64 KB pieces, and output keeps flowing
+roadmap: "0.1"
+covers: [long-line]
+notes: "fails on v0.2.3: a line over 64 KB stopped all output reading and the process hung"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 15s}
+  - expect_output: {id: up, stream: stdout, contains: "app | normal line 3000"}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs app
+    expect:
+      stdout_count: {"x": 200000, "normal line ": 3000}
+      stdout_in_order: ["started\n", "x\nnormal line 1\n", "normal line 3000\nDONE_WRITING\n"]
+  - sh: '"${BIN}" logs app 2>/dev/null | awk "/^x/ {print length}"'
+    expect: {stdout_equals: "65536\n65536\n65536\n3392\n"}

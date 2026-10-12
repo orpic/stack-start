@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,7 +23,10 @@ func Resolve(cwd, name, home, overridePath string) (Profile, string, error) {
 		return resolveFromFile(overridePath, name, cwd)
 	}
 
-	candidates := collectCandidates(cwd, name, home)
+	candidates, err := collectCandidates(cwd, name, home)
+	if err != nil {
+		return Profile{}, "", err
+	}
 
 	if len(candidates) == 0 {
 		return Profile{}, "", fmt.Errorf(
@@ -61,13 +66,17 @@ func resolveFromFile(path, name, cwd string) (Profile, string, error) {
 	return profile, path, nil
 }
 
-func collectCandidates(cwd, name, home string) []candidate {
+func collectCandidates(cwd, name, home string) ([]candidate, error) {
 	var candidates []candidate
 
 	dir := cwd
 	for {
 		path := filepath.Join(dir, "stackstart.yaml")
-		if f, err := ParseFile(path); err == nil {
+		f, err := parseIfExists(path)
+		if err != nil {
+			return nil, err
+		}
+		if f != nil {
 			if p, ok := f.Profiles[name]; ok {
 				pp := p.ProjectPath
 				if pp == "" {
@@ -87,7 +96,11 @@ func collectCandidates(cwd, name, home string) []candidate {
 	}
 
 	userPath := filepath.Join(home, "stackstart.yaml")
-	if f, err := ParseFile(userPath); err == nil {
+	f, err := parseIfExists(userPath)
+	if err != nil {
+		return nil, err
+	}
+	if f != nil {
 		for pName, p := range f.Profiles {
 			if pName == name && p.ProjectPath != "" && isWithinOrEqual(cwd, p.ProjectPath) {
 				candidates = append(candidates, candidate{p, userPath, p.ProjectPath})
@@ -95,7 +108,18 @@ func collectCandidates(cwd, name, home string) []candidate {
 		}
 	}
 
-	return candidates
+	return candidates, nil
+}
+
+// parseIfExists parses a stackstart.yaml found during the cascade lookup.
+// A missing file is skipped; a file that exists but can't be parsed is an
+// error, so a typo is reported instead of "no profile named ...".
+func parseIfExists(path string) (*File, error) {
+	f, err := ParseFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return f, err
 }
 
 // isWithinOrEqual returns true if child is within-or-equal to parent
@@ -122,7 +146,11 @@ func ListProfiles(cwd, home, overridePath string) ([]ProfileEntry, error) {
 	dir := cwd
 	for {
 		path := filepath.Join(dir, "stackstart.yaml")
-		if f, err := ParseFile(path); err == nil {
+		f, err := parseIfExists(path)
+		if err != nil {
+			return nil, err
+		}
+		if f != nil {
 			for name := range f.Profiles {
 				key := name + "|" + path
 				if !seen[key] {
@@ -139,7 +167,11 @@ func ListProfiles(cwd, home, overridePath string) ([]ProfileEntry, error) {
 	}
 
 	userPath := filepath.Join(home, "stackstart.yaml")
-	if f, err := ParseFile(userPath); err == nil {
+	f, err := parseIfExists(userPath)
+	if err != nil {
+		return nil, err
+	}
+	if f != nil {
 		for name, p := range f.Profiles {
 			if p.ProjectPath != "" && isWithinOrEqual(cwd, p.ProjectPath) {
 				key := name + "|" + userPath

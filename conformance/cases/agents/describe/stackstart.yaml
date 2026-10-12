@@ -1,0 +1,18 @@
+profiles:
+  p:
+    ports: {api: 4555}
+    processes:
+      db: {cmd: "exec perl -e 'sleep 300' ${TOKEN}"}
+      tunnel:
+        cmd: "echo url=https://x"
+        captures: [{name: url, log: "url=(\\S+)"}]
+      api:
+        cmd: "echo $U"
+        depends_on: [db, tunnel]
+        env: {U: "${tunnel.url}"}
+        restart: on-failure
+        readiness: {timeout: 5s, checks: [{tcp: "127.0.0.1:${port.api}"}]}
+      web:
+        cmd: "echo web"
+        depends_on: [api]
+        signals: {preset: vite}

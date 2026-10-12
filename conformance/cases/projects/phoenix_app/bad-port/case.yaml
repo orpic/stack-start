@@ -1,0 +1,19 @@
+name: "Phoenix: a taken port fails fast through fail_on instead of waiting for the timeout"
+roadmap: "0.10"
+covers: [ready-then-crash]
+project: test-projects/phoenix_app
+requires: ["mix --version", "initdb --version", "test -d deps"]
+timeout: 400s
+steps:
+  - spawn: |-
+      exec perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalAddr=>q(127.0.0.1),LocalPort=>4100,Listen=>5,ReuseAddr=>1) or die $!; $|=1; print qq(holding 4100\n); while($c=$s->accept){close $c}'
+    id: squatter
+  - wait_output: {id: squatter, contains: "holding 4100", timeout: 5s}
+  - start: up dev
+  - wait_exit: {id: up, exit: 1, timeout: 200s}
+  - expect_output:
+      id: up
+      stream: stderr
+      contains: ["--- FAILED: phoenix ---", "Read it later with: stackstart logs phoenix"]
+      matches: 'Cause: matched fail_on /'
+  - port: {addr: "127.0.0.1:5544", open: false, timeout: 5s}

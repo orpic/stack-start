@@ -1,0 +1,10 @@
+profiles:
+  p:
+    processes:
+      optional:
+        cmd: echo trying; exec perl -e 'sleep 300' ${TOKEN}
+        required: false
+        readiness: {timeout: 1s, checks: [{log: never}]}
+      keeper:
+        cmd: echo KEEPER_READY; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: KEEPER_READY}]}

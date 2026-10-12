@@ -1,0 +1,33 @@
+name: "node_api: npm ci and tsc in setup; tsx watch restarts on edits with a screen clear; npm, tsx and node all stop"
+roadmap: "0.5, 0.12"
+covers: [clear, child-tree, spinner, self-restart]
+project: test-projects/node_api
+requires: ["npm --version"]
+timeout: 600s
+steps:
+  - port: {addr: "127.0.0.1:3100", open: false, timeout: 1s}
+  - run: up setup
+    id: setup
+    timeout: 400s
+    expect: {stderr_contains: "all processes finished"}
+  - run: logs build
+    expect: {stdout_not_contains: ["\\\n", "\e"]}
+  - start: up dev
+  - wait_output: {id: up, stream: stderr, contains: "1 process ready", timeout: 60s}
+  - http: {url: "http://127.0.0.1:3100/", body_contains: "Hello from node_api", timeout: 10s}
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
+  - mark: {id: up, name: before-edit}
+  - edit_file: {path: src/server.ts, replace: {from: "Hello from node_api", to: "Hello again from node_api"}}
+  - wait_output: {id: up, stream: stdout, contains: "[stackstart] screen cleared", since: before-edit, timeout: 20s}
+  - wait_output: {id: up, stream: stdout, contains: "node_api listening on http://127.0.0.1:3100", since: before-edit, timeout: 20s}
+  - run: wait api --for rebuilt --after ${SEQ} --timeout 20s
+    expect: {stdout_contains: ["rebuild_finished api", "line=node_api listening on http://127.0.0.1:3100"]}
+  - http: {url: "http://127.0.0.1:3100/", body_contains: "Hello again from node_api", timeout: 10s}
+  - expect_output: {id: up, stream: stdout, not_contains: ["\e[2J", "\e[3J", "\ec"]}
+  - run: down
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:3100", open: false, timeout: 5s}
+  - run: logs api
+    expect:
+      stdout_in_order: ["node_api listening", "change in ./src/server.ts Restarting...", "[stackstart] screen cleared", "node_api listening"]

@@ -1,0 +1,11 @@
+name: a process that only writes to stderr is shown, logged and matched like any other
+roadmap: v0
+covers: [stderr-only]
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 5s}
+  - expect_output: {id: up, stream: stdout, contains: "app | stderr ready"}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs app
+    expect: {stdout_equals: "stderr ready\n"}

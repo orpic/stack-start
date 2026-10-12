@@ -1,0 +1,10 @@
+name: a line written in quick pieces stays one line; one that pauses is flushed and the rest follows
+roadmap: "0.2"
+covers: [prompt]
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 5s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: logs app
+    expect: {stdout_equals: "part1 part2 part3\nOk to proceed? (y) \ny\nDONE\n"}

@@ -1,0 +1,17 @@
+name: after a failed run, logs prints the whole log of that run and exits
+roadmap: "0.7"
+notes: "fails on v0.2.3: the logs were deleted on exit and logs only followed new output"
+steps:
+  - run: up p
+    timeout: 15s
+    expect:
+      exit: 1
+      stderr_contains: ["--- FAILED: app ---", "Cause: process app exited unexpectedly post-ready: exit status 1", "Read it later with: stackstart logs app"]
+  - run: logs app
+    expect:
+      stdout_equals: "ready\n** (Postgrex.Error) column \"owner_ref\" contains null values\n    (ecto_sql) lib/ecto/migrator.ex:1: failed at 20260101_add_owner.exs\n"
+      stderr_matches: '^==> app · p · \S+ · last run \S+ failed at \d{4}-\d\d-\d\d \d\d:\d\d:\d\d \(app\) <==\n$'
+  - run: logs other
+    expect: {stdout_equals: "other ran\n"}
+  - run: logs ghost
+    expect: {exit: 2, stderr_contains: 'process "ghost" not found in profile "p" (processes: '}

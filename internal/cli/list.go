@@ -24,7 +24,7 @@ func newListCmd() *cobra.Command {
 
 			profiles, err := config.ListProfiles(cwd, home, cfgFile)
 			if err != nil {
-				return err
+				return usageError(err)
 			}
 
 			if len(profiles) == 0 {

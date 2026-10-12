@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: bun --watch server.js
+        readiness: {timeout: 15s, checks: [{log: listening v1}]}

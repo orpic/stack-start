@@ -1,0 +1,13 @@
+name: http, exec and file readiness checks; a timeout names the last failure
+roadmap: "3.5"
+ports: [web]
+steps:
+  - start: up p
+  - wait_output: {id: up, stream: stderr, contains: "all 3 processes ready", timeout: 15s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - run: up never
+    timeout: 15s
+    expect:
+      exit: 1
+      stderr_contains: ["readiness timeout after 1s; still waiting for http http://127.0.0.1:${PORT_web}/health (last: ", "exec test -f nope (last: exit status 1)"]

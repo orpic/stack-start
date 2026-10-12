@@ -1,0 +1,10 @@
+profiles:
+  p:
+    processes:
+      migrate:
+        kind: oneshot
+        cmd: echo migrated
+      seed:
+        kind: oneshot
+        cmd: echo seeded
+        depends_on: [migrate]

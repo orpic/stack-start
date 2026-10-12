@@ -1,0 +1,29 @@
+name: every step kind works
+ports: [web]
+env: {CASE_ENV: from-case}
+steps:
+  - sh: 'test "$CASE_ENV" = from-case && test "$XDG_STATE_HOME" = "${STATE}" && test "$HOME" = "${HOME}" && test -f stackstart.yaml && pwd'
+    expect: {stdout_equals: "${WORK}\n"}
+  - write_file: {path: sub/a.txt, content: "hello world\n"}
+  - edit_file: {path: sub/a.txt, replace: {from: world, to: there}}
+  - sh: cat sub/a.txt
+    expect: {stdout_equals: "hello there\n", stdout_count: {"l": 2}, stdout_in_order: [hello, there], stdout_valid_utf8: true}
+  - spawn: "exec perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(LocalAddr=>q(127.0.0.1),LocalPort=>shift,Listen=>5,ReuseAddr=>1) or die $!; $|=1; print qq(listening\\n); while($c=$s->accept){print $c qq(HTTP/1.0 200 OK\\r\\n\\r\\nhello-from-helper); close $c}' ${PORT_web}"
+    id: web
+  - wait_output: {id: web, contains: listening, timeout: 5s}
+  - port: {addr: "127.0.0.1:${PORT_web}", open: true, timeout: 5s}
+  - http: {url: "http://127.0.0.1:${PORT_web}/", body_contains: "hello-from-helper", timeout: 5s}
+  - process: {matches: "IO::Socket.*${PORT_web}", count: 1, timeout: 5s}
+  - start: up p
+  - wait_output: {id: up, stream: stderr, contains: "1 process ready", timeout: 10s}
+  - wait_output: {id: up, stream: stdout, matches: 'app \| tick \d', count: 2, timeout: 10s}
+  - alive: {id: up, for: 500ms}
+  - process: {matches: "perl -e sleep 300 ${TOKEN}", count: 1, timeout: 5s}
+  - signal: {id: up, sig: INT}
+  - wait_exit: {id: up, exit: 0, timeout: 15s, within: 20s}
+  - process: {matches: "perl -e sleep 300 ${TOKEN}", absent: true, timeout: 5s}
+  - run: logs app
+    expect: {stdout_contains: "tick 1", stderr_contains: "==> app"}
+  - run: "validate nope"
+    expect: {exit: 2, stderr_contains: 'no profile named "nope"'}
+  - sleep: {duration: 100ms, reason: "exercise the sleep step"}

@@ -1,0 +1,11 @@
+profiles:
+  p:
+    processes:
+      a:
+        cmd: |-
+          perl -e 'print "a" x 300, "\n" for 1..3000'; echo A_DONE; exec perl -e 'sleep 300' a-${TOKEN}
+        readiness: {timeout: 15s, checks: [{log: A_DONE}]}
+      b:
+        cmd: |-
+          perl -e 'print "b" x 300, "\n" for 1..3000'; echo B_DONE; exec perl -e 'sleep 300' b-${TOKEN}
+        readiness: {timeout: 15s, checks: [{log: B_DONE}]}

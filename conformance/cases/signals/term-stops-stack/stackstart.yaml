@@ -1,0 +1,8 @@
+profiles:
+  p:
+    processes:
+      a:
+        cmd: exec perl -e 'sleep 300' a-${TOKEN}
+      b:
+        cmd: exec perl -e 'sleep 300' b-${TOKEN}
+        depends_on: [a]

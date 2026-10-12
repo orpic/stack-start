@@ -1,0 +1,25 @@
+profiles:
+  p:
+    processes:
+      tunnel:
+        # Prints a new URL each start; crashes when the file "crash" appears.
+        cmd: |-
+          n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count; echo "url https://t$n.example.com"; echo "stable abc"; while [ ! -f crash ] || [ $n -gt 1 ]; do sleep 0.05; done; exit 1
+        restart: on-failure
+        backoff: 100ms
+        captures:
+          - {name: url, log: "url (\\S+)"}
+          - {name: stable, log: "stable (\\S+)"}
+      uses_url:
+        cmd: |-
+          echo got ${tunnel.url}; exec perl -e 'sleep 300' u-${TOKEN}
+        depends_on: [tunnel]
+      ignores:
+        cmd: |-
+          echo got ${tunnel.url}; exec perl -e 'sleep 300' i-${TOKEN}
+        depends_on: [tunnel]
+        on_dep_restart: ignore
+      uses_stable:
+        cmd: |-
+          echo got ${tunnel.stable}; exec perl -e 'sleep 300' s-${TOKEN}
+        depends_on: [tunnel]

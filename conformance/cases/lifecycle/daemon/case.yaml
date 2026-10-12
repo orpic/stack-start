@@ -1,0 +1,17 @@
+name: a daemon (its command forks and exits) is tracked by its pidfile, logged, and stopped
+roadmap: "3.6"
+covers: [daemonize]
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: status --json
+    save_json: {DPID: "sessions[0].processes[name=svc].pid"}
+    expect: {stdout_json: {"sessions[0].processes[name=svc].kind": daemon, "sessions[0].processes[name=svc].state": ready}}
+  - process: {matches: "^svc-daemon-${TOKEN}", count: 1, timeout: 2s}
+  - run: logs svc --no-follow
+    expect: {stdout_contains: ["launching", "daemon tick 1"]}
+  - run: down
+    timeout: 20s
+  - process: {matches: "svc-daemon-${TOKEN}", absent: true, timeout: 3s}
+  - sh: cat stopped-by
+    expect: {stdout_equals: "stop_cmd\n"}

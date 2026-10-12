@@ -1,0 +1,9 @@
+profiles:
+  p:
+    processes:
+      svc:
+        kind: daemon
+        cmd: |-
+          perl -MPOSIX -e 'exit if fork; POSIX::setsid(); exit if fork; $0 = "slow-daemon-" . $ARGV[0]; open(STDIN, "<", "/dev/null"); open(STDOUT, ">>", "svc.log"); sleep 1.5; open(P, ">", "svc.pid"); print P "$$$$\n"; close P; $SIG{TERM} = sub { exit 0 }; sleep 1 while 1' ${TOKEN}
+        pidfile: svc.pid
+        readiness: {timeout: 20s, checks: [{file: svc.pid}]}

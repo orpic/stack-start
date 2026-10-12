@@ -1,0 +1,12 @@
+name: a process that restarts itself and resets the terminal leaves one marker per restart
+roadmap: "0.5"
+covers: [self-restart, clear]
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "restarting due to changes... (2)", timeout: 8s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - expect_output: {id: up, stream: stdout, not_contains: "\ec"}
+  - run: logs app
+    expect:
+      stdout_equals: "[nodemon] starting `node server.js`\nlistening on 4000\n[stackstart] screen cleared\n[nodemon] restarting due to changes... (1)\nlistening on 4000\n[stackstart] screen cleared\n[nodemon] restarting due to changes... (2)\nlistening on 4000\n"

@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          exec perl -MPOSIX -e '$|=1; if (!fork) { POSIX::setsid() or die; exec "perl", "-e", "sleep 300", "escaped-${TOKEN}" } print "parent ready\n"; sleep 300' parent-${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: "parent ready"}]}

@@ -1,0 +1,20 @@
+profiles:
+  dev:
+    processes:
+      db:
+        cmd: echo db
+        readiness: {timeout: 5s, checks: [{tcp: "127.0.0.1:5432"}]}
+      tunnel:
+        cmd: echo tunnel
+        captures: [{name: url, log: "(https://\\S+)"}]
+        readiness: {timeout: 5s, mode: any, checks: [{capture: url}, {log: ready}]}
+        fail_on: ["error"]
+      app:
+        cmd: echo app
+        cwd: sub
+        depends_on: [db, tunnel]
+        env: {URL: "${tunnel.url}", PRICE: "$$5"}
+        on_exit: ignore
+        required: false
+        stop_grace_period: 2s
+        templates: [{src: a.tmpl, dst: out/a.txt}]

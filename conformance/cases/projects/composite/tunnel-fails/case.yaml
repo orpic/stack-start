@@ -1,0 +1,18 @@
+name: "Composite: a failing tunnel fails fast; nothing that needs its URL starts; everything started is stopped"
+roadmap: "0.10, 0.11, 0.12"
+covers: [decoy-url]
+project: test-projects
+requires: ["mix --version", "npm --version", "initdb --version", "test -d phoenix_app/deps", "test -d node_api/node_modules"]
+timeout: 300s
+notes: "a common failure: a slow trycloudflare request tore down the stack only after the whole timeout, and the README regex would have captured the error URL"
+steps:
+  - start: up tunnel-fails
+  - wait_exit: {id: up, exit: 1, timeout: 120s}
+  - expect_output:
+      id: up
+      stream: stderr
+      contains: ["--- FAILED: tunnel ---", "Cause: matched fail_on /failed to request quick Tunnel/: ERR failed to request quick Tunnel"]
+  - expect_output: {id: up, stream: stdout, not_contains: ["phoenix  |", "api      |", "web      |"]}
+  - port: {addr: "127.0.0.1:5545", open: false, timeout: 5s}
+  - run: logs tunnel --profile tunnel-fails
+    expect: {stdout_contains: "ERR failed to request quick Tunnel"}

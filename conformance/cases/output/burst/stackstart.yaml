@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: |-
+          seq 1 50000 | sed 's/^/burst line /'; echo BURST_DONE; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 25s, checks: [{log: BURST_DONE}]}

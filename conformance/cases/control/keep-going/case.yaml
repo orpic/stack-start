@@ -1,0 +1,27 @@
+name: with --keep-going a failed process blocks only its dependents; fixing it and running start brings them up
+roadmap: "1.5"
+notes: "a failing migration: Postgres stays up while the migration is fixed"
+steps:
+  - run: up p -d --keep-going
+    timeout: 20s
+    expect:
+      exit: 1
+      stderr_contains: ["--- FAILED: migrate ---", "Cause: oneshot process failed: exit status 1", "The stack keeps running (--keep-going). Fix the cause, then: stackstart start migrate"]
+  - run: status --json
+    expect:
+      stdout_json: {"sessions[0].keep_going": true, "sessions[0].processes[name=db].state": ready, "sessions[0].processes[name=migrate].state": failed, "sessions[0].processes[name=app].state": blocked, "sessions[0].processes[name=app].blocked_by": migrate, "sessions[0].processes[name=other].state": ready}
+  - run: start app
+    expect: {exit: 1, stderr_contains: ["process app is blocked: migrate failed", "fix it, then run 'stackstart start migrate'; app starts once it is ready"]}
+  - run: status --json
+    expect: {stdout_json: {"sessions[0].processes[name=app].state": blocked}}
+  - write_file: {path: fixed, content: "yes"}
+  - run: start migrate
+    timeout: 20s
+    expect: {stdout_contains: "Started migrate: ready in"}
+  - run: wait app --timeout 10s
+  - run: status --json
+    expect: {stdout_json: {"sessions[0].processes[name=app].state": ready, "sessions[0].processes[name=db].restarts": 0}}
+  - run: logs migrate --no-follow
+    expect: {stdout_equals: "column \"owner_ref\" contains null values\nmigrated\n"}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

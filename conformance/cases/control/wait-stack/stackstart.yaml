@@ -1,0 +1,10 @@
+profiles:
+  p:
+    processes:
+      fast:
+        cmd: |-
+          echo up; exec perl -e 'sleep 300' f-${TOKEN}
+      slow:
+        cmd: |-
+          sleep 1.5; echo up; exec perl -e 'sleep 300' s-${TOKEN}
+        readiness: {timeout: 10s, checks: [{log: "^up$"}]}

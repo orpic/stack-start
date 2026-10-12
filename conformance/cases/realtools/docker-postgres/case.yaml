@@ -1,0 +1,19 @@
+name: "Docker postgres: gate on the final listen line, not the port proxy or the init server"
+roadmap: "0.3"
+covers: [early-port]
+home: real
+requires: ["docker image inspect postgres:16", "psql --version"]
+ports: [pg]
+timeout: 180s
+notes: "Docker's proxy accepts TCP before postgres listens; the image prints 'ready to accept connections' for a temporary init server first; and the final 'listening on IPv4' line comes ~50 ms before queries are accepted, so the dependent query retries (found 2026-10-11 under parallel load)"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 120s}
+  - run: down
+    timeout: 60s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - run: logs query
+    expect: {stdout_contains: "42"}
+  - sh: |-
+      for i in $(seq 1 60); do [ -z "$(docker ps -aq --filter name=ss-${TOKEN})" ] && exit 0; sleep 0.5; done; echo "container still exists"; exit 1
+    timeout: 40s

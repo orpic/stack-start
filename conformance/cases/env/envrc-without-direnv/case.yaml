@@ -1,0 +1,12 @@
+name: without direnv, export lines in .envrc are read natively and anything else asks for direnv
+roadmap: v0
+env: {PATH: "/usr/bin:/bin:/usr/sbin:/sbin"}
+requires: ["! command -v direnv"]
+steps:
+  - run: up p
+    expect: {stdout_contains: "app | X=from-envrc Y=has spaces R=from-envrc"}
+  - write_file: {path: .envrc, content: "export X=1\nuse nix\n"}
+  - run: up p
+    expect:
+      exit: 1
+      stderr_contains: ".envrc:2: unsupported directive \"use nix\" - this .envrc requires direnv to evaluate; install direnv via 'brew install direnv' and run 'direnv allow'"

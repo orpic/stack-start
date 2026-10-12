@@ -1,34 +1,107 @@
 name: ci
-on: [pull_request, push]
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
 jobs:
-  unit:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+  lint:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "stable"
+          go-version-file: go.mod
       - run: go vet ./...
-      - name: Unit tests with race detection and coverage
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./internal/...
-      - name: Print coverage summary
-        run: go tool cover -func=coverage.out | tail -1
+      - run: cd conformance/runner && go vet ./...
       - uses: golangci/golangci-lint-action@v7
         with:
           version: "v2.11.4"
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: "v2.11.4"
+          working-directory: conformance/runner
 
-  e2e:
+  # The black-box conformance suite (conformance/README.md) on every push:
+  # every case except the test projects. Real-tool cases run where the tool
+  # is already on the runner image and skip otherwise.
+  conformance:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "stable"
-      - name: E2e tests
-        run: go test -v -timeout 180s ./e2e/
+          go-version-file: go.mod
+      - name: Build stackstart and the runner
+        run: |
+          mkdir -p tmp
+          go build -o tmp/stackstart ./cmd/stackstart
+          (cd conformance/runner && go build -o ../../tmp/conformance .)
+      - name: Runner self-test
+        run: conformance/runner/selftest/run.sh tmp/conformance tmp/stackstart
+      - name: Conformance cases
+        run: tmp/conformance --bin tmp/stackstart --skip-projects --timeout-scale 2 --junit tmp/conformance.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-${{ matrix.os }}
+          path: tmp/conformance.xml
+
+  # Everything, with every toolchain installed: real tools (Elixir, Node,
+  # Bun, Postgres, Redis, Python, Go, Docker) and the test projects.
+  # Run by hand (Actions -> ci -> Run workflow), e.g. before a release.
+  full:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: Install Postgres and Redis
+        run: |
+          sudo apt-get update
+          # inotify-tools: Phoenix's file watching (code reloader, live reload) on Linux.
+          sudo apt-get install -y redis-server postgresql inotify-tools
+          echo "$(ls -d /usr/lib/postgresql/*/bin | tail -1)" >> "$GITHUB_PATH"
+      - name: Pull images used by Docker cases
+        run: docker pull postgres:16
+      - name: Python packages for the schema case
+        run: python3 -m pip install jsonschema pyyaml
+      - name: Build stackstart and the runner
+        run: |
+          mkdir -p tmp
+          go build -o tmp/stackstart ./cmd/stackstart
+          (cd conformance/runner && go build -o ../../tmp/conformance .)
+      - name: Install the test projects' dependencies
+        run: |
+          for p in phoenix_app django_app fastapi_app node_api react_router_app rails_app; do
+            (cd test-projects/$p && ../../tmp/stackstart up setup)
+          done
+          (cd test-projects && ../tmp/stackstart up setup-all)
+      - name: All conformance cases
+        run: tmp/conformance --bin tmp/stackstart -v --timeout-scale 2 --junit tmp/conformance.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance-full
+          path: tmp/conformance.xml

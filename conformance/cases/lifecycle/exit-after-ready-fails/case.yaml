@@ -1,0 +1,15 @@
+name: a process that exits after becoming ready fails the stack and says so
+roadmap: "0.7"
+covers: [ready-then-crash]
+steps:
+  - start: up p
+  - wait_exit: {id: up, exit: 1, timeout: 15s}
+  - expect_output:
+      id: up
+      stream: stderr
+      contains:
+        - "--- FAILED: app ---"
+        - "Cause: process app exited unexpectedly post-ready: exit status 1"
+        - "Last output:\n  ready\n  ** (Postgrex.Error) column \"owner_ref\" contains null values\n"
+  - expect_output: {id: up, stream: stderr, matches: 'Full log: /\S+/app\.log\n'}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

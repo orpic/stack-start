@@ -1,0 +1,17 @@
+profiles:
+  p:
+    processes:
+      db:
+        kind: daemon
+        cmd: pg_ctl -D pgdata -l pg.log -o "-p ${PORT_pg} -c listen_addresses=127.0.0.1 -c unix_socket_directories=''" start
+        pidfile: pgdata/postmaster.pid
+        log_file: pg.log
+        stop_cmd: pg_ctl -D pgdata stop -m fast
+        readiness:
+          timeout: 30s
+          checks:
+            - exec: pg_isready -h 127.0.0.1 -p ${PORT_pg}
+      query:
+        kind: oneshot
+        cmd: psql -h 127.0.0.1 -p ${PORT_pg} -U postgres -c 'select 40 + 2 as answer'
+        depends_on: [db]

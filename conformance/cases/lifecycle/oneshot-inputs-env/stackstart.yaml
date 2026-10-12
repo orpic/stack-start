@@ -1,0 +1,13 @@
+profiles:
+  p:
+    processes:
+      src:
+        kind: oneshot
+        cmd: echo "v=$(cat val)"
+        captures: [{name: v, log: "v=(\\S+)"}]
+      build:
+        kind: oneshot
+        cmd: echo "building with $V"
+        depends_on: [src]
+        env: {V: "${src.v}"}
+        inputs: [stackstart.yaml]

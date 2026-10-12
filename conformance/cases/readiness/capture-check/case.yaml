@@ -1,0 +1,8 @@
+name: a capture check makes a tunnel ready with its URL and passes it to dependents
+roadmap: "0.11"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "all 2 processes ready", timeout: 10s}
+  - expect_output: {id: up, stream: stdout, contains: "backend     | backend got https://quiet-river-blue-moon.trycloudflare.com"}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}

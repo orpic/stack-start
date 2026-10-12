@@ -1,0 +1,14 @@
+profiles:
+  p:
+    processes:
+      app: {cmd: "exit 1"}
+  q:
+    processes:
+      app:
+        cmd: |-
+          exec perl -e 'sleep 300' ${TOKEN}
+  r:
+    processes:
+      app:
+        cmd: exit 1
+        readiness: {timeout: 5s, checks: [{log: never}]}

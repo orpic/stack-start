@@ -38,6 +38,19 @@ runtime value propagation between processes.`,
 		newDownCmd(),
 		newLogsCmd(),
 		newStatusCmd(),
+		newCleanCmd(),
+		newStartCmd(),
+		newStopCmd(),
+		newRestartCmd(),
+		newSendCmd(),
+		newAttachCmd(),
+		newEventsCmd(),
+		newWaitCmd(),
+		newEnvCmd(),
+		newExecCmd(),
+		newDescribeCmd(),
+		newSchemaCmd(),
+		newMCPCmd(),
 	)
 
 	return root
@@ -45,9 +58,12 @@ runtime value propagation between processes.`,
 
 func Execute() {
 	root := NewRootCmd()
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	root.PersistentPreRun = func(*cobra.Command, []string) { ran = true }
+	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		return codedError{exitUsage, "usage", fmt.Errorf("%w\nSee '%s --help'", err, c.CommandPath())}
+	})
+	if cmd, err := root.ExecuteC(); err != nil {
+		os.Exit(report(cmd, err))
 	}
 }
 
@@ -61,3 +77,12 @@ func newVersionCmd() *cobra.Command {
 		},
 	}
 }
+
+// exitError makes a command exit with a specific code. An empty message
+// prints nothing (the command already reported the problem).
+type exitError struct {
+	code int
+	msg  string
+}
+
+func (e exitError) Error() string { return e.msg }

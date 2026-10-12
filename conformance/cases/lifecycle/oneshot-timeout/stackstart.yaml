@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      setup:
+        kind: oneshot
+        cmd: exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 1s}

@@ -1,0 +1,22 @@
+name: signals turn output into rebuild events; wait --for rebuilt succeeds or fails with the error line
+roadmap: "2.4, 2.5"
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
+  - write_file: {path: trigger, content: "ok"}
+  - run: wait app --for rebuilt --after ${SEQ} --timeout 10s
+    expect: {stdout_contains: "rebuild_finished app", stdout_matches: 'duration_ms=\d+'}
+  - run: status --json
+    save_json: {SEQ2: "sessions[0].events.last_seq"}
+    expect: {stdout_json: {"sessions[0].processes[name=app].rebuilds": 1, "sessions[0].processes[name=app].last_rebuild.state": ok, "sessions[0].processes[name=app].state": ready}}
+  - write_file: {path: trigger, content: "fail"}
+  - run: wait app --for rebuilt --after ${SEQ2} --timeout 10s
+    expect: {exit: 1, stderr_contains: "process app failed", stdout_contains: "rebuild_failed app"}
+  - run: status --json
+    expect: {stdout_json: {"sessions[0].processes[name=app].last_rebuild.state": failed, "sessions[0].processes[name=app].last_rebuild.error": "ERROR in src/main.ts: Unexpected token"}}
+  - run: events --type rebuild_started --type rebuild_finished --type rebuild_failed
+    expect: {stdout_count: {"rebuild_started app": 2, "rebuild_finished app": 1, "rebuild_failed app": 1}}
+  - run: down
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

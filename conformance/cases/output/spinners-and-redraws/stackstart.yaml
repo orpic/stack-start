@@ -1,0 +1,13 @@
+profiles:
+  p:
+    processes:
+      spinner:
+        # npm install, docker pull, esbuild, cargo: \r progress.
+        cmd: |-
+          printf '| 10%%\r/ 50%%\r- 100%% done\n\033[32mdownloading\033[0m 30%%\r\033[Kdownloaded\n'; echo installed; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: installed}]}
+      compose:
+        # docker compose, Next.js, Turborepo: cursor movement, OSC titles, hidden cursor.
+        cmd: |-
+          printf '[+] Running 0/3\n\033[1A\033[0G\033[2K[+] Running 3/3\n\033]0;compose: up\007 \033[?25l✔ Container db  Started\033[?25h\n'; echo 'compose ready'; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: compose ready}]}

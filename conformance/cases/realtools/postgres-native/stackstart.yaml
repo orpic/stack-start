@@ -1,0 +1,15 @@
+profiles:
+  p:
+    processes:
+      postgres:
+        cmd: postgres -D pgdata -p ${PORT_pg} -c listen_addresses=127.0.0.1 -c unix_socket_directories=''
+        readiness: {timeout: 30s, checks: [{tcp: "127.0.0.1:${PORT_pg}"}]}
+      migrate:
+        kind: oneshot
+        # psql pages through less on a terminal unless PAGER is cat.
+        cmd: psql -h 127.0.0.1 -p ${PORT_pg} -U postgres -c 'select 40 + 2 as answer'
+        depends_on: [postgres]
+      app:
+        cmd: |-
+          echo app started; exec perl -e 'sleep 300' ${TOKEN}
+        depends_on: [migrate]

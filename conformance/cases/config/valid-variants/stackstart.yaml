@@ -1,0 +1,17 @@
+profiles:
+  p:
+    processes:
+      db: {cmd: echo db, kind: long-running}
+      cache: {cmd: echo cache}
+      backend: {cmd: echo backend, depends_on: [db, cache], env: {DB: "${envrc.DATABASE_URL}"}}
+      web: {cmd: echo web, depends_on: [backend]}
+      build: {cmd: npm run build, kind: oneshot, readiness: {timeout: 2m}}
+      tunnel:
+        cmd: echo tunnel
+        captures: [{name: url, log: "(https://\\S+)", required: false}]
+        readiness: {timeout: 1m30s, checks: [{capture: url}]}
+  cycle3:
+    processes:
+      a: {cmd: echo a, depends_on: [b]}
+      b: {cmd: echo b, depends_on: [c]}
+      c: {cmd: echo c, depends_on: [a]}

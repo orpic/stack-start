@@ -1,0 +1,28 @@
+name: "go run: the binary go run builds and starts as a child is stopped too"
+roadmap: "0.12"
+covers: [child-tree]
+home: real
+requires: ["go version"]
+ports: [web]
+timeout: 240s
+steps:
+  - write_file:
+      path: main.go
+      content: |
+        package main
+
+        import (
+        	"log"
+        	"net/http"
+        )
+
+        func main() {
+        	log.Println("go server starting")
+        	log.Fatal(http.ListenAndServe("127.0.0.1:${PORT_web}", nil))
+        }
+  - write_file: {path: go.mod, content: "module demo\n\ngo 1.21\n"}
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 180s}
+  - run: down
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:${PORT_web}", open: false, timeout: 5s}

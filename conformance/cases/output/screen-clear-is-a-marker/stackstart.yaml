@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: "printf 'build 1 ok\\nerror from build 1\\n'; sleep 0.3; printf '\\033[2J\\033[3J\\033[H'; echo 'build 2 ok'; exec perl -e 'sleep 300' ${TOKEN}"
+        readiness: {timeout: 5s, checks: [{log: "build 2 ok"}]}

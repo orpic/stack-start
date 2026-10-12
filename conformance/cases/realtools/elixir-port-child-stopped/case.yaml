@@ -1,0 +1,15 @@
+name: "Elixir: an OS process started as a BEAM port (like Phoenix watchers) is stopped with the stack"
+roadmap: "0.14"
+covers: [group-escape]
+home: real
+requires: ["elixir --version"]
+timeout: 90s
+notes: "fails on v0.2.3: the port child, started via erl_child_setup in its own group, survived down"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 40s}
+  - process: {matches: "^perl -e sleep 300 port-${TOKEN}$", count: 1, timeout: 5s}
+  - run: down
+    timeout: 30s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 5s}

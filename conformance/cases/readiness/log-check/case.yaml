@@ -1,0 +1,8 @@
+name: a log check makes a process ready when its line appears
+roadmap: v0
+steps:
+  - start: up p
+  - wait_output: {id: up, stream: stderr, contains: "stackstart: 1 process ready · logs: ", timeout: 10s}
+  - expect_output: {id: up, stream: stdout, contains: "app | READY"}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}

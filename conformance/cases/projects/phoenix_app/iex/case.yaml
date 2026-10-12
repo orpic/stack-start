@@ -1,0 +1,19 @@
+name: "Phoenix in IEx: ready on the iex(1)> prompt while serving HTTP; down stops the BEAM and its watchers"
+roadmap: "0.2, 0.14"
+covers: [prompt, group-escape]
+project: test-projects/phoenix_app
+requires: ["iex --version", "initdb --version", "test -d deps"]
+timeout: 400s
+steps:
+  - port: {addr: "127.0.0.1:4100", open: false, timeout: 1s}
+  - start: up iex
+  - wait_output: {id: up, stream: stderr, contains: "all 4 processes ready", timeout: 180s}
+  - expect_output: {id: up, stream: stdout, contains: "iex(1)> "}
+  - http: {url: "http://127.0.0.1:4100/", body_contains: "Phoenix Framework", timeout: 20s}
+  - run: down
+    timeout: 60s
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:4100", open: false, timeout: 5s}
+  - port: {addr: "127.0.0.1:5544", open: false, timeout: 5s}
+  - run: logs phoenix
+    expect: {stdout_contains: "iex(1)> ", stdout_not_contains: "\e"}

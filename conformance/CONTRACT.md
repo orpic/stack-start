@@ -1,0 +1,353 @@
+<!-- Stackstart - https://github.com/orpic/stack-start -->
+<!-- Copyright (c) 2026 Shobhit. All rights reserved. See LICENSE. -->
+
+# Stackstart public contract
+
+This is everything a user or an agent can rely on, and the only thing the conformance cases in [`cases/`](cases/) are allowed to observe. Any implementation of stackstart, in any language, that passes the suite satisfies it.
+
+Change this file deliberately. If you change a string here, change the cases that assert it in the same commit, and say so in the commit message.
+
+**Not contract** (cases must never read or rely on them): the state directory layout, `run.json`, `<slug>.json`, `.state` files, the slug format, the run-id format, `stackstart.log` contents, the order of lines from *different* processes on the console, and timing beyond the documented timeouts.
+
+Notation: `<x>` is a variable part. `…` is free text. Strings are exact unless marked "contains".
+
+## 1. Commands
+
+| Command | Arguments and flags | Blocks? |
+| --- | --- | --- |
+| `stackstart version` | | no |
+| `stackstart --help`, `<cmd> --help` | | no |
+| `stackstart init` | | no |
+| `stackstart validate <profile>` | | no |
+| `stackstart list` | | no |
+| `stackstart up <profile>` | `-d`/`--detach`, `--no-wait`, `--timeout <d>` (10m), `--keep-going`, `--json`, `--only <p,…>`, `--skip <p,…>`, `--set <p>.<capture>=<value>`, `--no-cache` | foreground: until the stack stops; `-d`: until ready, failed or timed out |
+| `stackstart down` | `--profile <name>`, `--no-wait`, `--force`, `--timeout <duration>` (default `2m`) | until the stack has stopped, unless `--no-wait` |
+| `stackstart status` | `--json`, `--all`, `--profile` | no |
+| `stackstart start\|stop\|restart <process>` | `--profile`, `--no-wait`, `--timeout <d>` (5m), `--json` | until ready (stop: stopped), unless `--no-wait` |
+| `stackstart send <process> <text>` | `--profile`, `--no-newline`, `--echo <d>` (500ms), `--json` | for `--echo` |
+| `stackstart attach <process>` | `--profile` | until Ctrl-] (needs a terminal) |
+| `stackstart events` | `--after <seq>`, `--follow`, `--json`, `--type <t>` (repeatable), `--process <p>`, `--profile` | with `--follow` |
+| `stackstart env <process>` | `--profile`, `--explain`, `--json`, `--show-secrets` | no |
+| `stackstart exec <process> -- <cmd> [args]` | `--profile` | until the command exits (its exit code) |
+| `stackstart describe <profile>` | `--json` | no |
+| `stackstart schema` | | no |
+| `stackstart mcp` | | serves until stdin closes |
+| `stackstart init --agents` | | no |
+| `stackstart wait [process]` | `--for ready\|exit\|rebuilt\|event:<type>`, `--after <seq>`, `--timeout <d>` (5m), `--json`, `--profile` | until the condition or the timeout |
+| `stackstart logs <process>` | `--profile <name>`, `--lines <n>`, `--follow`, `--no-follow`, `--since <d or time>`, `--grep <re>`, `-i`, `--run latest\|prev\|<id>` | follows only on a live stack with stdout on a terminal, or with `--follow` |
+| `stackstart clean` | `--all`, `--dry-run` | no |
+
+Global flags on every command: `--config <path>` (use this file instead of the cascade lookup), `--quiet` (no `stackstart:` notices on stderr), `--log-format text|json` (diagnostic log format).
+
+`stdin` is never read by any command. No command prompts.
+
+## 2. Exit codes
+
+| Code | When |
+| --- | --- |
+| 0 | Success. For `up`: every process finished (oneshot-only profile), or the stack was stopped by one SIGINT/SIGTERM/SIGHUP or by `down`. |
+| 1 | A process failed (readiness, crash, `fail_on`, a oneshot's exit), the profile is already running, or any other error not listed below. |
+| 2 | Invalid usage (unknown flag, wrong arguments) or invalid config (unparsable file, unknown profile, validation errors), or an unknown process name. |
+| 3 | No matching session (`down`, `logs`, `restart` … with nothing running here). |
+| 4 | More than one session matches; pass `--profile`. |
+| 5 | Timed out waiting (`wait`, `up -d --timeout`, `restart --timeout`). |
+| 130 | Killed on request: a second SIGINT/SIGTERM to `up`, or `down --force`. |
+
+**Structured errors.** A command run with `--json` that fails prints `{"ok": false, "error": {"code": …, "message": …}}` on stdout (the message is also on stderr). Codes: `usage`, `invalid_config`, `no_session`, `ambiguous_session`, `timeout`, `not_found`, `conflict`, `failed`, `process_failed`, `shutting_down`, `error`. Errors from a running stack may also carry `process`, `hint`, `last_lines` and `log_file`.
+
+## 3. Output streams
+
+- `up` writes process output to **stdout** as `<name padded to the longest process name> | <line>`. A process's own stdout and stderr are both shown (processes run on a terminal, so they are one stream).
+- `up` writes its own lines to **stderr**, each starting with `stackstart: `, except the failure report (section 5).
+- Console lines may contain SGR color codes (`ESC[…m`). They never contain any other escape sequence or a carriage return (section 7).
+- `logs` writes the log to **stdout** and its header to **stderr**.
+- Errors from any command go to **stderr** as one message (possibly several lines), and the exit code is non-zero.
+
+## 4. Configuration
+
+`stackstart.yaml`:
+
+```yaml
+profiles:
+  <profile>:
+    project_path: <abs path>          # optional; default: the directory holding the file
+    ports: {<name>: <default port>}   # port variables, used as ${port.<name>} (section 14)
+    processes:
+      <name>:
+        cmd: <shell command>          # required; run with /bin/sh -c
+        cwd: <relative path>          # optional; relative to the project path
+        kind: oneshot | long-running | daemon  # default long-running
+        inputs: [<glob>, …]           # oneshots: skip when unchanged (section 13)
+        pidfile: <path>               # daemons (section 13)
+        stop_cmd: <shell command>
+        log_file: <path>
+        depends_on: [<name>, …]
+        env: {KEY: value}             # values may use ${<process>.<capture>} and ${envrc.KEY}
+        readiness:
+          timeout: <duration>         # required when readiness is present
+          mode: all | any             # default all
+          checks:
+            - log: <regex>            # a line of the process's plain output matches
+            - tcp: <host:port>        # a TCP connect succeeds
+            - capture: <name>         # that capture of this process has a value
+            - http: <url>             # GET answers 2xx/3xx (or `status: <code>`)
+            - exec: <shell command>   # exits 0 (run in the process's cwd and env)
+            - file: <path>            # exists (relative to the process's cwd)
+        captures:
+          - name: <name>
+            log: <regex with exactly one group>
+            required: true|false
+        fail_on: [<regex>, …]
+        templates:
+          - {src: <relative path>, dst: <relative path>}
+        on_exit: fail | ignore        # default fail
+        required: true|false          # default true
+        stop_grace_period: <duration> # default 10s
+        restart: never | on-failure | always   # retry policy (section 11)
+        retries: <n>
+        backoff: <min>..<max>
+        on_dep_restart: restart | ignore
+        signals:                      # rebuild events (section 12)
+          preset: <name>
+          rebuilding: <regex>
+          rebuilt: <regex>
+          rebuild_failed: <regex>
+        health:                       # section 12
+          interval: <duration>        # default 10s
+          timeout: <duration>         # per check, default 2s
+          failures: <n>               # failed rounds in a row before degraded, default 3
+          checks: [{tcp|http|exec|file: …}]
+```
+
+Behavior:
+
+- **Lookup cascade.** Without `--config`, `stackstart.yaml` files are searched from the current directory upwards (and in the home directory). Every profile visible from the current directory is listed by `list`. When several files define the same profile name, the one whose project path is deepest wins.
+- **Interpolation** in `cmd` and `env` values: `${<process>.<capture>}` is the captured value, `${envrc.KEY}` a value from the project's `.envrc`, `$$` a literal `$`. Any other `${…}` is an error, so shell variables in `cmd` are written `$VAR` or `$${VAR}`. A single `$` not followed by `{` or `$` is literal.
+- **Templates** are Go `text/template` files rendered before the process starts, with `.<process>.<capture>` and `.envrc.<KEY>` available.
+- **Readiness.** A process without `readiness` is ready as soon as it has started. A process is never ready before every one of its required captures (`required` defaults to `true`) has a value; a pending one shows as `capture <name>` in a timeout cause. The first line matching a capture sets it; later matches are ignored. A reference to an optional capture that never matched fails the process that uses it (`unresolved reference ${<p>.<c>}`). Readiness is checked continuously (not only when output arrives). Ready or failed is decided exactly once. `log` and `capture` checks and `captures` match the **plain** text of a line (section 7), so `^` and `$` anchor to the visible text.
+- **Dependencies.** A process starts only after every process in its `depends_on` is ready (a oneshot is ready when it exits 0).
+- **Oneshot.** Ready when it exits 0. Non-zero exit fails it. With `readiness.checks`, it is ready when the checks pass; with only `readiness.timeout`, the timeout bounds its run time.
+- **`fail_on`.** Before the process is ready, a matching line fails it immediately. After it is ready, a matching line only adds the warning line in section 6.
+- **`on_exit: ignore`.** The process may exit (any code, any time) without stopping the stack.
+- **`required: false`.** A failure of this process is reported and the rest of the stack keeps running.
+- **Stopping.** Processes are stopped in reverse dependency order: SIGTERM to the process group and to every descendant that left the group, then SIGKILL after `stop_grace_period`.
+
+### Validation errors
+
+`validate <profile>` and `up <profile>` reject invalid profiles with exit 1 and one of these messages (stderr, "contains"):
+
+| Problem | Message |
+| --- | --- |
+| Unparsable YAML (also from the cascade: `up`, `validate`, `list`) | `parsing <path>: …` |
+| No profiles key | `<path>: no 'profiles' key found` |
+| Unknown profile (cascade) | `no profile named "<p>" applies to directory <cwd>; run 'stackstart list' to see available profiles, or 'stackstart init' to create one` |
+| Unknown profile (`--config`) | `profile "<p>" not found in <path> (available: …)` |
+| No processes | `profile "<p>" has no processes defined` |
+| Bad kind | `process "<n>": kind must be 'oneshot', 'long-running' or 'daemon', got "<k>"` |
+| Ports | `ports: <name> must be between 1 and 65535, got <n>`; `ports: invalid name "<n>"`; `process "<n>": reference ${port.<x>} refers to unknown port "<x>" (ports: …)` |
+| Daemon fields | `process "<n>": kind daemon needs a pidfile`; `pidfile, stop_cmd and log_file only apply to kind: daemon`; `inputs only apply to kind: oneshot` |
+| No cmd | `process "<n>": 'cmd' is required` |
+| Absolute cwd | `process "<n>": 'cwd' must be relative to project_path, got absolute path "<cwd>"` |
+| Unknown dependency | `process "<n>": depends_on references unknown process "<d>"` |
+| Self dependency | `process "<n>": cannot depend on itself` |
+| Cycle | `dependency cycle detected: <a> -> <b> -> <a>` |
+| Bad on_exit | `process "<n>": on_exit must be 'fail' or 'ignore', got "<v>"` |
+| Empty fail_on | `process "<n>": fail_on[<i>] is empty` |
+| Bad fail_on regex | `process "<n>": fail_on[<i>] invalid regex "<re>"` |
+| Template without src/dst | `process "<n>": template[<i>] missing 'src'` / `missing 'dst'` |
+| Absolute template path | `process "<n>": template[<i>] 'src' must be relative, got "<p>"` (same for `dst`) |
+| No readiness timeout | `process "<n>": readiness.timeout is required and must be positive` |
+| Bad mode | `process "<n>": readiness.mode must be 'any' or 'all', got "<m>"` |
+| No checks | `process "<n>": readiness.checks must contain at least one check` |
+| Check with no kind | `process "<n>": readiness.checks[<i>] must specify one of 'log', 'tcp', 'capture', 'http', 'exec' or 'file'` |
+| Check with two kinds | `process "<n>": readiness.checks[<i>] must specify only one of 'log', 'tcp', 'capture', 'http', 'exec' or 'file'` |
+| Bad http | `process "<n>": readiness.checks[<i>] http must be an http:// or https:// URL, got "<v>"` |
+| status without http | `process "<n>": readiness.checks[<i>] status only applies to http checks` |
+| Bad restart / backoff / on_dep_restart | `process "<n>": restart must be 'never', 'on-failure' or 'always', got "<v>"`; `backoff must be '<duration>' or '<min>..<max>', got "<v>"`; `on_dep_restart must be 'restart' or 'ignore', got "<v>"` |
+| Signals | `process "<n>": signals: unknown preset "<p>" (presets: …)`; `signals needs a preset or at least one of rebuilding, rebuilt, rebuild_failed`; `signals: <field>: invalid regex "<re>"` |
+| Health | `process "<n>": health.checks must contain at least one check`; `health.checks[<i>] can only use 'tcp', 'http', 'exec' or 'file'` |
+| Capture check of unknown capture | `process "<n>": readiness.checks[<i>] capture "<c>" is not one of this process's captures` |
+| Bad log regex | `process "<n>": readiness.checks[<i>] invalid log regex "<re>"` |
+| Bad tcp | `process "<n>": readiness.checks[<i>] tcp must be 'host:port', got "<v>"` |
+| Capture without name/log | `process "<n>": captures[<i>] missing 'name'` / `missing 'log'` |
+| Bad capture regex | `process "<n>": captures[<i>] invalid log regex "<re>"` |
+| Capture group count | `process "<n>": captures[<i>] regex must have exactly 1 capturing group, got <k>` |
+| Malformed reference | `process "<n>": invalid reference ${<ref>} (expected ${process.capture})` |
+| Reference to unknown process | `process "<n>": reference ${<ref>} refers to unknown process "<p>"` |
+| Reference to unknown capture | `process "<n>": reference ${<ref>} refers to unknown capture "<c>" on process "<p>"` |
+| Bad duration | `invalid duration "<s>"` |
+
+Success: `Profile "<p>" from <path> is valid.` (stdout).
+
+## 5. `up`
+
+stderr notices:
+
+- `stackstart: 1 process ready · logs: <dir>` or `stackstart: all <N> processes ready · logs: <dir>` (N counts every process, oneshots included), once, when every process is ready. `<dir>` holds `<process>.log` (plain) and `<process>.raw.log` (exact bytes) for every process.
+- `stackstart: all processes finished`, when nothing is left running (then exit 0).
+- `stackstart: <p> failed (not required, continuing): <cause>`
+- `stackstart: stopping all processes (Ctrl-C again to kill immediately)`, on the first SIGINT/SIGTERM/SIGHUP.
+
+Failure report (stderr), then exit 1 after every process is stopped:
+
+```text
+--- FAILED: <process> ---
+Cause: <cause>
+Last output:
+  <last lines of the process, indented two spaces>
+Full log: <path to the process's plain log>
+Read it later with: stackstart logs <process>
+```
+
+`Last output:` is omitted when the process printed nothing. Causes (contains):
+
+| Cause | Text |
+| --- | --- |
+| Readiness timeout | `readiness timeout after <d>; still waiting for <checks>`, where checks are `log /<re>/`, `tcp <addr>`, `capture <name>`, `http <url>`, `exec <cmd>`, `file <path>` (the last three with ` (last: <why it failed>)`), joined by `, ` |
+| `fail_on` match | `matched fail_on /<re>/: <line>` |
+| Exit before ready | `process <p> exited before becoming ready: exit status <n>` (or `signal: <name>`), or `… (exit 0)` |
+| Exit after ready | `process <p> exited unexpectedly post-ready: exit status <n>` (or `signal: <name>`), or `… (exit 0)` |
+| Oneshot exit non-zero | `oneshot process failed: exit status <n>` |
+| Oneshot exit 0 with checks pending | `oneshot process exited before readiness checks passed; still waiting for <checks>` |
+| Already running | `profile is already running for this project; see 'stackstart status'` (no FAILED block) |
+
+Guarantees:
+
+- A readiness timeout fires on time whatever the process is doing (logging, silent).
+- A `fail_on` match fails the process without waiting for the timeout, and its dependents never start.
+- After `up` exits, or after `down` returns, **no process the profile started is alive**: not the process, not its children, not descendants that left its process group.
+- A second SIGINT/SIGTERM kills everything immediately and exits 130.
+- SIGHUP (terminal closed) stops the stack like SIGINT.
+
+## 6. Console and log markers
+
+These lines appear in a process's console stream (prefixed with its name) and in its log:
+
+- `[stackstart] screen cleared` — where the process cleared the screen (`ESC[2J`, `ESC[3J`, `ESC c`).
+- `[stackstart] warning: matched fail_on /<re>/ after the process was ready`
+
+## 7. Output handling
+
+What a process writes is turned into lines as follows. "Console" is `up`'s stdout; "log" is what `stackstart logs` prints.
+
+- Lines end at `\n`. `\r\n` is a line end.
+- `\r` inside a line keeps only the text after the last `\r` (progress bars and spinners collapse to their final text).
+- Moving the cursor to column 1 (`ESC[G`, `ESC[1G`) or erasing the whole line (`ESC[2K`) works like `\r`. A spinner frame erased this way, with nothing after it, leaves no line at all.
+- A line that hasn't ended is still shown, logged and matched once output pauses for 250 ms (prompts such as `iex(1)> `).
+- A line longer than 64 KB is split into 64 KB pieces; no byte is lost and reading never stops.
+- Screen clears become the marker line above. All other escape sequences (cursor movement, erase line, OSC titles, charset switches, cursor visibility) are removed.
+- SGR color codes are kept on the console and removed from the log.
+- Invalid UTF-8 is replaced; logs are always valid UTF-8.
+- Other control characters except tab are removed.
+- Every byte the process wrote is also kept unchanged in a raw log next to the plain log (`<process>.raw.log` beside the path printed as `Full log:`).
+
+## 8. Environment
+
+Each process's environment is layered, later wins:
+
+1. The environment `up` was started with.
+2. `PAGER=cat`, `GIT_PAGER=cat`, `PSQL_PAGER=cat`, `MANPAGER=cat`, `SYSTEMD_PAGER=` (empty), over the shell's own values.
+3. The project's `.envrc`: evaluated with `direnv` when it is installed; otherwise only `export KEY=value` lines (and comments, blank lines) are supported, and anything else fails with `… unsupported directive "<line>" - this .envrc requires direnv to evaluate; install direnv via 'brew install direnv' and run 'direnv allow'`.
+4. The project's `.env` (`KEY=value` lines, `#` comments).
+5. The process's `env:` block, with interpolation.
+
+## 9. Sessions
+
+- A running `up` is a session for (project path, profile). A second `up` of the same profile in the same project fails with the "already running" message.
+- `down`, `logs` find sessions whose project path is the current directory or one of its parents, **but never across a nested git repository or worktree**: from a directory inside the project that contains its own `.git` (directory or file), the outer project's sessions are not found.
+- More than one match: `more than one stackstart session matches this directory; pass --profile <name>:` followed by one `  --profile <name>  <project path>` line per session. `logs <p>` first narrows to the sessions that have process `<p>`.
+- `down`:
+  - success (stdout): `Stopped "<profile>" in <path>. Logs: <dir>`; progress (stderr): `Stopping "<profile>" in <path>...`
+  - `--no-wait` (stdout): `Stopping "<profile>" in <path> (PID <pid>).`
+  - `--force` (stdout): `Killed "<profile>" in <path>. Logs: <dir>`; every process is killed at once and `up` exits 130.
+  - running `down` again while the stack is stopping waits again; it never force-kills.
+  - nothing running: `no running stackstart session found for <cwd>`
+  - timeout: `stack "<profile>" is still stopping after <d> (stackstart PID <pid>); run 'stackstart down' again to keep waiting, or 'stackstart down --force' to kill it now`
+- `status`: `No running stackstart sessions.` or a table with header `PROFILE  PROJECT  PID  STARTED  PROCESSES` and one row per session, processes as `<name>(<state>)` joined by `, `.
+- `list`: `Available profiles:` then `  <name padded>  (from <path>)` per profile; or `No profiles found for the current directory context.` and `Run 'stackstart init' to create a stackstart.yaml.`
+- `init`: `Created <path>`; if the file exists, fails with `stackstart.yaml already exists in <dir>`.
+- `version`: `stackstart <version> (commit: <c>, built: <date>)`.
+
+## 10. Logs and runs
+
+- Every `up` is a run with its own logs. Logs are kept after the run ends, whatever the outcome. The last **10** runs of each (project, profile) are kept; older ones are deleted when a new run starts.
+- `logs <p>` on a live session, following (stdout is a terminal, or `--follow`): header `==> <p> · <profile> · <project> · running (Ctrl-C to stop) <==` on stderr, then the last 10 lines (or `--lines`), then new lines as they come, until SIGINT/SIGTERM (exit 0). Not following: header `==> <p> · <profile> · <project> · running <==`, then the whole log (or the last `--lines`), exit 0.
+- `logs <p>` with no live session: the whole log of the most recent finished run that matches, then exit 0. Header: `==> <p> · <profile> · <project> · last run <id> stopped at <time> <==`, or `… last run <id> failed at <time> (<failed process>) <==`.
+- Errors: `no running or previous stackstart session found for <cwd>`; `process "<p>" not found in profile "<profile>" (processes: …)`.
+- `clean` removes finished runs of the project in the current directory (`--all`: every project); never a running session's logs. Output: `Removed <N> finished run(s), <size>.`; with `--dry-run`, one `would remove  <run>  <profile>  <project>  (<size>)` line per run and `Would remove <N> finished run(s), <size>.`
+
+## 11. Controlling a running stack
+
+Every running stack accepts commands on a control socket (its path is in `status --json` as `control_socket`). The CLI commands below use it; anything else may too (newline-delimited JSON, see docs/phase1-design.md).
+
+**`up -d`** starts the stack in the background, detached from the terminal, and waits:
+
+- ready: `stackstart: all <N> processes ready · logs: <dir>` (stderr) and `Started "<profile>" in <path> (PID <pid>). Logs: <dir>` (stdout), exit 0. With `--json`, the status document instead.
+- a required process failed: the FAILED block (section 5), exit 1. Without `--keep-going` the stack has stopped; with it, the stack keeps running and stderr says `The stack keeps running (--keep-going). Fix the cause, then: stackstart start <p>`.
+- a profile of oneshots finished: `stackstart: all processes finished`, exit 0.
+- `--timeout` passed: exit 5; the stack keeps running.
+- `--no-wait`: returns once the stack has started (`Started …`).
+
+The background stack's console output goes to `console.log` in its logs directory.
+
+**Process states** (`status`, `status --json`): `pending` (waiting for dependencies), `blocked` (a dependency failed; `blocked_by` names it), `starting`, `ready`, `backoff` (waiting to retry), `stopping`, `stopped` (by `stop`), `failed`, `exited` (a finished oneshot or `on_exit: ignore`).
+
+**`stop <p>`** stops `p` and every process that depends on it, dependents first. `p` becomes `stopped`; its dependents `pending`. Output: `Stopped <dependents…>, <p>.` Processes that don't depend on `p` are not touched.
+
+**`start <p>`** starts a `stopped`, `failed`, `exited` or `pending` process; processes waiting for it start once it is ready. Output: `Started <p>: ready in <d>.` A process whose previous instance is still being stopped (after a failure): exit 1, `process <p> is still stopping its previous instance`. A process that is already starting, ready or stopping: exit 1, `process <p> is already <state>` and `use 'stackstart restart <p>' to restart it`. A `blocked` process: exit 1, `process <p> is blocked: <q> failed` and `fix it, then run 'stackstart start <q>'; <p> starts once it is ready`.
+
+**`restart <p>`** stops `p` and its dependents, then starts them again with fresh captured values. Nothing else is touched: other processes keep their PIDs and captured values. Output: `Restarted <targets>: ready in <d>.` (`--json`: `{"ok": true, "process": …, "targets": [dependents…, p], "seq": …}`).
+
+Unknown process for any of these: exit 1, `process "<p>" not found in profile "<profile>"` and `processes: <list>`.
+
+**Retry policy** (config): `restart: never | on-failure | always` (default `never`), `retries: N` (failed attempts in a row before the process counts as failed; 0 = no limit), `backoff: <min>..<max>` (default `1s..30s`, doubling). `on-failure` does not retry a long-running process that exited with code 0. While waiting, the state is `backoff` and stderr says `stackstart: <p> failed (<cause>); retrying in <d> (attempt <n>[ of <max>])`. When a retried process is ready again, processes that use one of its captured values are restarted **only if that value changed** (`on_dep_restart: ignore` opts out).
+
+**`--keep-going`**: a required process that fails (after its retries) becomes `failed`, its dependents `blocked`, everything else keeps running; stderr says `<p> failed (--keep-going; fix it and run 'stackstart start <p>')`. The stack ends on its own only when nothing is left running.
+
+**`send <p> <text>`** types `text` and Enter into `p`'s terminal and prints what `p` printed during `--echo` (the terminal echoes the typed text too). `--no-newline` omits Enter. A process that doesn't read its input within 5 s: exit 5, `process <p> is not reading its input`.
+
+**`status --json`** prints `{"schema": 1, "sessions": [...]}`. Per session: `profile`, `project`, `config_file`, `run_id`, `stackstart_pid`, `detached`, `keep_going`, `started_at`, `state` (`running`, `stopping`), `ready` (every process is ready, done, or an optional failure), `log_dir`, `console_log`, `events.file`, `events.last_seq`, `control_socket`, `git` (`root`, `worktree`, `branch`, `head`, `start_head`, `head_moved`). Per process (in name order): `name`, `kind`, `state`, `pid` (0 unless running), `cwd`, `depends_on`, `blocked_by`, `ports` (from `tcp:` checks), `captures` (`***` for `secret: true`), `started_at`, `ready_after_ms`, `restarts`, `attempt`, `last_exit` (`code`, `signal`, `at`), `cause`, `log_file`, `raw_log_file`. Without a running stack: `{"schema": 1, "sessions": []}`.
+
+**Events.** Every run keeps `events.jsonl` (path in `status --json`): one JSON object per line with `seq` (1, 2, 3… per run), `ts`, `type`, `process` and type-specific fields. Types: `run_started`, `process_starting` (`pid`, `attempt`, `cmd`), `process_ready` (`pid`, `after_ms`), `capture` (`name`, `value`), `screen_cleared`, `fail_on_warning` (`pattern`, `line`), `process_backoff` (`cause`, `attempt`, `delay_ms`), `process_failed` (`cause`, `last_lines`, `log_file`, `required`), `process_exited` (`pid`, `exit_code`, `signal`, `expected`), `process_blocked` (`blocked_by`), `start_requested`, `process_restarting` (`by`), `process_stopping` / `process_stopped` (`by`: `user`, `restart`, `dependency`), `input_sent`, `stack_ready`, `run_stopping` (`reason`), `run_finished` (`outcome`, `failed_process`, `cause`). Clients must ignore types they don't know.
+
+`events` prints them as `<seq> <time> <type> <process or -> <key=value …>` (or JSON lines with `--json`); on a stopped stack it reads the last run's file.
+
+**`wait`** exits 0 when the condition holds, printing the matching event (or `<p> is ready (seq <n>)` when it already was). Without a process, `--for ready` waits for the whole stack (`stack_ready`) and is met at once if the stack is already ready. `--for ready` is met at once if the process is ready and no `--after` is given; every other condition counts only events after `--after <seq>` (default: now). A `process_failed` of the process (or `rebuild_failed` for `rebuilt`) ends the wait with exit 1 and the failure. Timeout: exit 5, `timed out after <d> waiting for <condition>`.
+
+## 12. Rebuilds, health and log queries
+
+**Rebuild signals.** With `signals:`, lines of a *ready* process become events: `rebuild_started` (`via`: `output` or `screen_clear`, `line`), `rebuild_finished` (`line`, `duration_ms` if it started), `rebuild_failed` (`line`). A rebuild also starts when the process clears the screen, and finishes when one of its readiness `log:` checks matches again (a server that restarted printed its ready line). `rebuilt` lines count even without a start (tailwind, Vite HMR). Presets: `django`, `esbuild`, `next`, `node-watch`, `nodemon`, `phoenix`, `rails`, `tailwind`, `tsc`, `tsx`, `uvicorn`, `vite`, `webpack`; explicit patterns override a preset's. `status --json` per process: `rebuilds` (finished count) and `last_rebuild` (`state`: `rebuilding`, `ok`, `failed`; `at`; `duration_ms`; `error`). `wait <p> --for rebuilt` waits for `rebuild_finished` (or a fresh `process_ready`) and fails on `rebuild_failed`.
+
+**Health.** A ready process with `health:` is checked every `interval`. After `failures` failed rounds in a row it becomes `degraded` (event `process_degraded` with `cause`, e.g. `exec test ! -f down: exit status 1`; stderr `stackstart: <p> is degraded: <cause>`); a passing round makes it `ready` again (`process_healthy`; `stackstart: <p> is healthy again`). `status --json`: `health_failures`. A degraded process counts as up (it is not restarted).
+
+**Log queries.** `logs --since <d>` (`5m`, `1h30m`), `--since 14:05` or an RFC 3339 time prints only lines written since then (each log keeps a `<process>.log.idx` index of when each line was written); `--grep <re>` (RE2; `-i` ignores case) only matching lines; `--lines N` applies after both. `--run latest|prev|<run id or prefix>` reads that run's log (header `==> <p> · <profile> · <project> · run <id> <==`); an unknown run is exit 2 with the list of runs. A bad `--since` or `--grep` is exit 2.
+
+## 13. Running things the stack's way
+
+**`env <p>`** prints `KEY=value` lines (sorted) of the environment `p` runs with: from the running stack (exactly what it got, captured values included), or, without one, composed from `--profile`'s config (exit 1 if `p` needs a captured value: `<p> uses ${<ref>} (in <KEY>), which is only known while the stack runs; start it with 'stackstart up <profile> -d'`; exit 2 without a running stack and without `--profile`). `--explain` appends `  # <source>[, overrode <earlier sources>]`, sources being `shell`, `default`, `.envrc`, `.env`, `env`. Values of `secret_env` variables and of variables set from `secret: true` captures are `***` unless `--show-secrets`. `--json`: `{"process", "cwd", "vars": [{"name", "value", "source", "overrode"}], "secret": [names]}`.
+
+**`exec <p> -- <cmd> [args]`** runs `cmd` with that environment (secrets included), in `p`'s working directory, looked up on `p`'s `PATH`, with stdin/stdout/stderr attached; stackstart exits with `cmd`'s exit code. Ctrl-C reaches `cmd` (it does not start with SIGINT ignored). Without `--` before the command: exit 2.
+
+**`up --only <p,…>`** starts only those processes and what they depend on. **`--skip <p,…>`** leaves processes out (dependencies on them are dropped); a remaining process that uses `${<skipped>.<capture>}` needs `--set <skipped>.<capture>=<value>`, else exit 2 with `<p> uses ${<ref>}, but <skipped> is not started; pass --set <ref>=<value>`.
+
+**Oneshot inputs.** A oneshot with `inputs` (globs relative to its cwd; `*`, `?`, `**`; a directory means everything in it) is skipped when its resolved command, the resolved values of its `env:` block (captured values and ports included) and the content of the matching files are the same as at its last successful run: its log and the console get `[stackstart] skipped: <n> input files unchanged since the last successful run`, the events `process_skipped` (`reason`, `inputs_hash`, `files`) and `process_ready` (`skipped: true`). `up --no-cache` runs it anyway.
+
+**Daemons.** `kind: daemon`: `cmd` starts the real process in the background and exits 0 (the launcher runs in its own session without a terminal, so its exit cannot hang up the daemon). Readiness checks are optional: a daemon is never ready before its pidfile names a running process (a pending `pidfile <path>` check in timeout causes). Stopping a daemon that has not written its pidfile yet waits a few seconds for it and stops it then. Its PID is then read from `pidfile` (first line) and tracked (status `pid`, event `daemon_started`); `log_file`, if set, is followed into the process's log (and readiness, captures, signals see it). It counts as exited when that PID is gone. Stopping runs `stop_cmd` (in the process's cwd and env) if set, then SIGTERM, then SIGKILL after the grace period.
+
+## 14. Several stacks at once
+
+**Port variables.** `ports: {web: 4100}` at the profile level declares a port; `${port.web}` in any string of a process (cmd, env, cwd, readiness and health checks) becomes the port the stack got. A stack gets each declared default unless it is in use (on IPv4 or IPv6) or claimed by another running stackstart stack; then it gets the next free port above it. Two stacks of the same project (e.g. two git worktrees) therefore run side by side without editing the config. `status --json` shows them as the session's `ports` (`{"web": 4101}`), and `env`/`exec` see the substituted values. Without a running stack, `env`/`exec --profile` use the defaults.
+
+**Port clashes.** Before starting, every local port a process's `tcp:` or `http:` readiness check points at is tested. One already in use gives a warning on stderr, `stackstart: warning: port <n> (which <p> waits for) was already in use by <holder> before the stack started` (holder: `pid <pid> (<command>)` when `lsof` is available, else `another process`), an event `port_in_use` (`port`, `holder`), and, if `<p>` then fails, a `Note: …` line with the same text in its FAILED block.
+
+**All sessions.** `status` inside a project shows that project's stacks; outside any (or with `--all`), every running stack.
+
+## 15. Agent integration
+
+**`describe <profile> [--json]`** explains a profile without running it. JSON (`schema: 1`): `profile`, `project`, `config_file`, `ports`, `start_order` (waves: processes in a wave start together once the previous waves are ready), `running`, `commands`, and per process (by name): `kind`, `cmd`, `cwd`, `depends_on`, `dependents`, `required`, `on_exit`, `readiness` (`timeout`, `mode`, `checks` as strings like `tcp 127.0.0.1:4555`), `captures` (`name`, `log`, `required`, `secret`), `uses` (captured values it references, `${p.c}`), `fail_on`, `restart` (`policy`, `retries`, `backoff`, `on_dep_restart`), `signal_preset` and resolved `signals`, `health`, `inputs`, `ports`, `env` (names only). Port variables are substituted with their defaults.
+
+**`schema`** prints the JSON Schema (draft 2020-12) of `stackstart.yaml`; every config in `test-projects/` validates against it, and unknown keys are rejected.
+
+**`mcp`** serves the Model Context Protocol over stdin/stdout (newline-delimited JSON-RPC 2.0): `initialize` (answers with the client's `protocolVersion`, `capabilities.tools`, `serverInfo.name` `stackstart`, and usage `instructions`), `ping`, `tools/list`, `tools/call`; notifications are ignored; unknown methods get error `-32601`. Tools: `status`, `list_profiles`, `describe`, `up`, `down`, `restart`, `stop`, `start`, `logs`, `wait`, `events`, `exec`, `env`, `send`; each takes an optional `cwd`. A tool runs the matching CLI command (with `--json` where it has one) and returns its stdout and stderr as one text content item, with `(exit N)` and `isError: true` when it failed.
+
+**`init --agents`** prints a "Local stack (stackstart)" section for `AGENTS.md` / `CLAUDE.md` and writes no file.

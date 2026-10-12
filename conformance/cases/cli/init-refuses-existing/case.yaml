@@ -1,0 +1,7 @@
+name: init refuses to overwrite an existing stackstart.yaml
+steps:
+  - write_file: {path: stackstart.yaml, content: "profiles: {}\n"}
+  - run: init
+    expect: {exit: 1, stderr_contains: "stackstart.yaml already exists in ${WORK}"}
+  - sh: cat stackstart.yaml
+    expect: {stdout_equals: "profiles: {}\n"}

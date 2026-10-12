@@ -1,0 +1,2 @@
+profiles:
+  p: {processes: {a: {cmd: x, templates: [{dst: out.txt}]}}}

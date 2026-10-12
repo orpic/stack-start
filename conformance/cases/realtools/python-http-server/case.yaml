@@ -1,0 +1,15 @@
+name: "python -m http.server: ready on tcp, serves, and stops"
+roadmap: "0.3"
+covers: [stderr-only]
+requires: ["/usr/bin/python3 --version"]
+ports: [web]
+timeout: 60s
+steps:
+  - write_file: {path: index.html, content: "hello from python\n"}
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 20s}
+  - http: {url: "http://127.0.0.1:${PORT_web}/", body_contains: "hello from python", timeout: 5s}
+  - wait_output: {id: up, stream: stdout, contains: '"GET / HTTP/1.1" 200', timeout: 5s}
+  - run: down
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:${PORT_web}", open: false, timeout: 5s}

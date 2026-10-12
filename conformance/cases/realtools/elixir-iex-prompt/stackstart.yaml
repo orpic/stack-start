@@ -1,0 +1,6 @@
+profiles:
+  p:
+    processes:
+      iex:
+        cmd: iex
+        readiness: {timeout: 30s, checks: [{log: 'iex\(1\)> $'}]}

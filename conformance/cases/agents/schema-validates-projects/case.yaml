@@ -1,0 +1,18 @@
+name: every stackstart.yaml in test-projects validates against the published JSON Schema
+roadmap: "5.2"
+home: real
+requires: ["python3 -c 'import jsonschema, yaml'"]
+steps:
+  - sh: |-
+      "${BIN}" schema > schema.json && python3 - "${ROOT}"/test-projects/stackstart.yaml "${ROOT}"/test-projects/*/stackstart.yaml <<'PY'
+      import json, sys, yaml, jsonschema
+      schema = json.load(open("schema.json"))
+      for path in sys.argv[1:]:
+          jsonschema.validate(yaml.safe_load(open(path)), schema)
+          print("ok", path.split("/test-projects/")[1])
+      PY
+    expect: {stdout_contains: ["ok stackstart.yaml", "ok phoenix_app/stackstart.yaml", "ok rails_app/stackstart.yaml"]}
+  - write_file: {path: bad.yaml, content: "profiles:\n  p:\n    processes:\n      a: {cmd: x, restart: sometimes, colour: red}\n"}
+  - sh: |-
+      python3 -c 'import json,sys,yaml,jsonschema; jsonschema.validate(yaml.safe_load(open("bad.yaml")), json.load(open("schema.json")))'
+    expect: {exit: 1, stderr_contains: "ValidationError"}

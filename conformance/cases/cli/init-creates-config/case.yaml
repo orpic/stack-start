@@ -1,0 +1,7 @@
+name: init writes a starter stackstart.yaml that validates
+steps:
+  - run: init
+    expect: {stdout_equals: "Created ${WORK}/stackstart.yaml\n"}
+  - sh: test -f stackstart.yaml
+  - run: validate dev
+    expect: {stdout_contains: 'Profile "dev" from ${WORK}/stackstart.yaml is valid.'}

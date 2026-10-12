@@ -1,0 +1,8 @@
+profiles:
+  p:
+    processes:
+      repl:
+        # A REPL: prompt without newline, reads lines, answers.
+        cmd: |-
+          exec perl -e '$|=1; print "calc> "; while(<STDIN>){chomp; my $r = /^[\d\s+*-]+$/ ? eval($_) : $_; print "= $r\ncalc> "}' ${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: '^calc> '}]}

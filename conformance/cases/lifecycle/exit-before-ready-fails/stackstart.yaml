@@ -1,0 +1,11 @@
+profiles:
+  p:
+    processes:
+      app:
+        cmd: echo bye
+        readiness: {timeout: 5s, checks: [{log: never}]}
+  q:
+    processes:
+      app:
+        cmd: echo bye; exit 7
+        readiness: {timeout: 5s, checks: [{log: never}]}

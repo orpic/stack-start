@@ -1,0 +1,13 @@
+name: "Redis: ready on tcp although it goes silent after its banner; down frees the port"
+roadmap: "0.3"
+covers: [silent-port]
+home: real
+requires: ["redis-server --version"]
+ports: [redis]
+timeout: 60s
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 20s}
+  - run: down
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:${PORT_redis}", open: false, timeout: 5s}

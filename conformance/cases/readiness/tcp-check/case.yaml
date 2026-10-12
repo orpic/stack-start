@@ -1,0 +1,12 @@
+name: a tcp check passes once the port accepts connections, even if the process prints nothing
+roadmap: "0.3"
+covers: [silent-port]
+ports: [web]
+notes: "the silent variant fails on v0.2.3: tcp checks were only re-evaluated when a line arrived"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 10s}
+  - port: {addr: "127.0.0.1:${PORT_web}", open: true, timeout: 2s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - port: {addr: "127.0.0.1:${PORT_web}", open: false, timeout: 5s}

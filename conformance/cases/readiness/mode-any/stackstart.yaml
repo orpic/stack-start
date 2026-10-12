@@ -1,0 +1,11 @@
+profiles:
+  anyp:
+    processes:
+      app:
+        cmd: echo SIGNAL_B; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 5s, mode: any, checks: [{log: SIGNAL_A}, {log: SIGNAL_B}]}
+  allp:
+    processes:
+      app:
+        cmd: echo SIGNAL_B; exec perl -e 'sleep 300' ${TOKEN}
+        readiness: {timeout: 1s, checks: [{log: SIGNAL_A}, {log: SIGNAL_B}]}

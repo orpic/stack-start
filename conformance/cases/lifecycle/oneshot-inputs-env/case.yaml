@@ -1,0 +1,11 @@
+name: a oneshot whose files are unchanged but whose env (a captured value) changed runs again
+roadmap: "3.4"
+steps:
+  - write_file: {path: val, content: "one"}
+  - run: up p
+    expect: {stdout_contains: "build | building with one"}
+  - run: up p
+    expect: {stdout_contains: "skipped", stdout_not_contains: "building"}
+  - write_file: {path: val, content: "two"}
+  - run: up p
+    expect: {stdout_contains: "build | building with two"}

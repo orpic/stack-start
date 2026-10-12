@@ -1,0 +1,9 @@
+name: when retries run out the process fails and the stack stops with its report
+roadmap: "1.4"
+steps:
+  - run: up p
+    timeout: 20s
+    expect:
+      exit: 1
+      stderr_contains: ["stackstart: broken failed (process broken exited before becoming ready: exit status 3); retrying in 100ms (attempt 2 of 3)", "--- FAILED: broken ---"]
+      stdout_count: {"broken | trying": 3}

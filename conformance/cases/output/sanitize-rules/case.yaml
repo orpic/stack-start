@@ -1,0 +1,17 @@
+name: every output rule, one line each, on the console and in the log
+roadmap: "0.5, 0.6"
+covers: [clear, spinner, redraw, unicode, invalid-utf8]
+notes: "replaces the internal/output Sanitize unit tests"
+steps:
+  - start: up p
+  - wait_output: {id: up, contains: "1 process ready", timeout: 5s}
+  - signal: {id: up, sig: TERM}
+  - wait_exit: {id: up, exit: 0, timeout: 15s}
+  - expect_output:
+      id: up
+      stream: stdout
+      contains: ["app | \e[32mok\e[0m\n", "app | \e[31merror\e[0m\n"]
+      not_contains: ["\r", "\e[2J", "\e[3J", "\ec", "\e[K", "\e[2A", "\e[0G", "\e]", "\e(B", "\a", "\b", "\e[12", "\e[J"]
+  - run: logs app
+    expect:
+      stdout_equals: "hello\nlistening on 4000\nok\nerror\n[stackstart] screen cleared\nbuild 2 ok\n[stackstart] screen cleared\nRestarting 'app.js'\ntext\n- 100% done\ndone\n[+] Running 3/3\nvisible\nlink\nbox\nabc\na\tb\n  ➜  Local:   http://localhost:5173/ │\ntext\nok � bytes\n[stackstart] screen cleared\nnew\nDONE\n"

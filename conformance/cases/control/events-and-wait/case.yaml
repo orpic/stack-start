@@ -1,0 +1,28 @@
+name: events lists what happened with sequence numbers; wait blocks for a condition or times out with exit 5
+roadmap: "2.3, 2.4"
+steps:
+  - run: up p -d
+    timeout: 20s
+  - run: events --json
+    expect:
+      stdout_contains: ["\"type\":\"run_started\"", "\"type\":\"process_starting\"", "\"type\":\"capture\"", "\"name\":\"url\"", "\"value\":\"https://abc.example.com\"", "\"type\":\"process_ready\"", "\"type\":\"stack_ready\""]
+  - run: events --type capture
+    expect: {stdout_matches: '^\d+ \d\d:\d\d:\d\d\.\d{3} capture tunnel name=url value=https://abc\.example\.com\n$'}
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
+  - run: wait app --timeout 5s
+    expect: {stdout_contains: "app is ready"}
+  - run: wait app --for exit --timeout 500ms
+    expect: {exit: 5, stderr_contains: "timed out after 500ms waiting for exit"}
+  - start: wait app --for exit --after ${SEQ} --timeout 10s
+    id: waiter
+  - sleep: {duration: 200ms, reason: "let the waiter connect before the event"}
+  - run: stop app
+  - wait_exit: {id: waiter, exit: 0, timeout: 5s}
+  - expect_output: {id: waiter, stream: stdout, contains: "process_stopped app"}
+  - run: events --after ${SEQ}
+    expect: {stdout_contains: ["process_stopping app by=user", "process_stopped app by=user"], stdout_not_contains: "run_started"}
+  - run: down
+  - run: events --type run_finished
+    expect: {stdout_contains: "run_finished - outcome=stopped"}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

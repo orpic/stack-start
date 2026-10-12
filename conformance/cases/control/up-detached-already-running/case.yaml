@@ -1,0 +1,15 @@
+name: up -d of a profile that is already running says so, not an older run's failure
+roadmap: "1.1"
+steps:
+  - write_file: {path: fail, content: "1"}
+  - run: up p
+    expect: {exit: 1, stderr_contains: "--- FAILED: app ---"}
+  - sh: rm fail
+  - start: up p
+    id: fg
+  - wait_output: {id: fg, contains: "1 process ready", timeout: 10s}
+  - run: up p -d
+    timeout: 20s
+    expect: {exit: 1, stderr_contains: "already running", stderr_not_contains: "FAILED"}
+  - signal: {id: fg, sig: TERM}
+  - wait_exit: {id: fg, exit: 0, timeout: 15s}

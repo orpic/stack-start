@@ -1,3 +1,0 @@
-profiles:
-  dev:
-    processes: "this should be a map not a string"

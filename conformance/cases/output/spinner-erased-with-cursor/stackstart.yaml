@@ -1,0 +1,8 @@
+profiles:
+  p:
+    processes:
+      app:
+        kind: oneshot
+        # npm and ora draw a frame, then move to column 1 and erase the line.
+        cmd: |-
+          printf '> node_api@1.0.0 build\r\n> tsc -p .\r\n\r\n\\\033[1G\033[0K|\033[1G\033[0Kbuilt\n/\033[G\033[0K-\033[2Knext\n\\\033[1G\033[0K'

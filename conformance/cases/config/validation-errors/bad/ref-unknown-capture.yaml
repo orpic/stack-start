@@ -1,0 +1,5 @@
+profiles:
+  p:
+    processes:
+      t: {cmd: x, captures: [{name: url, log: "(x)"}]}
+      a: {cmd: x, depends_on: [t], env: {U: "${t.port}"}}

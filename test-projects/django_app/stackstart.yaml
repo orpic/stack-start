@@ -1,0 +1,34 @@
+# Django 5.2 LTS on SQLite. Port: runserver 8100.
+profiles:
+  # Create the virtualenv and install dependencies: stackstart up setup
+  setup:
+    processes:
+      venv:
+        kind: oneshot
+        cmd: python3 -m venv .venv
+        readiness: {timeout: 120s}
+      install:
+        kind: oneshot
+        cmd: .venv/bin/pip install --disable-pip-version-check -r requirements.txt
+        depends_on: [venv]
+        readiness: {timeout: 300s}
+
+  dev:
+    processes:
+      migrate:
+        kind: oneshot
+        cmd: .venv/bin/python manage.py migrate --no-input
+        readiness: {timeout: 120s}
+      web:
+        # runserver's StatReloader restarts the server process inside this
+        # one, printing "<file> changed, reloading."
+        cmd: .venv/bin/python manage.py runserver 127.0.0.1:8100
+        depends_on: [migrate]
+        signals: {preset: django}
+        fail_on:
+          - "Error: That port is already in use"
+        readiness:
+          timeout: 60s
+          checks:
+            - log: "Starting development server at http://127.0.0.1:8100/"
+            - tcp: 127.0.0.1:8100

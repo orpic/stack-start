@@ -1,0 +1,37 @@
+name: "Composite: restart phoenix leaves Postgres, the API, the web app and the tunnel untouched"
+roadmap: "1.1, 1.2, 1.7"
+project: test-projects
+requires: ["mix --version", "npm --version", "initdb --version", "test -d phoenix_app/deps", "test -d node_api/node_modules", "test -d react_router_app/node_modules"]
+timeout: 600s
+notes: "the Phase 1 acceptance criterion (ROADMAP.md): restarting one service must not restart the whole stack"
+steps:
+  - run: up fullstack-offline -d
+    timeout: 300s
+    expect: {stderr_contains: "all 7 processes ready"}
+  - run: status --json
+    save_json:
+      PG: "sessions[0].processes[name=postgres].pid"
+      API: "sessions[0].processes[name=api].pid"
+      WEB: "sessions[0].processes[name=web].pid"
+      TUN: "sessions[0].processes[name=tunnel].pid"
+      PHX: "sessions[0].processes[name=phoenix].pid"
+      URL: "sessions[0].processes[name=tunnel].captures.url"
+  - run: restart phoenix
+    timeout: 200s
+    expect: {stdout_contains: "Restarted phoenix: ready in"}
+  - http: {url: "http://127.0.0.1:4110/tunnel", body_contains: "${URL}", timeout: 20s}
+  - run: status --json
+    expect:
+      stdout_json:
+        "sessions[0].processes[name=postgres].pid": "${PG}"
+        "sessions[0].processes[name=api].pid": "${API}"
+        "sessions[0].processes[name=web].pid": "${WEB}"
+        "sessions[0].processes[name=tunnel].pid": "${TUN}"
+        "sessions[0].processes[name=tunnel].captures.url": "${URL}"
+        "sessions[0].processes[name=phoenix].state": ready
+        "sessions[0].processes[name=phoenix].restarts": 1
+      stdout_json_not: {"sessions[0].processes[name=phoenix].pid": "${PHX}"}
+  - run: down
+    timeout: 90s
+  - port: {addr: "127.0.0.1:4110", open: false, timeout: 5s}
+  - port: {addr: "127.0.0.1:5545", open: false, timeout: 5s}

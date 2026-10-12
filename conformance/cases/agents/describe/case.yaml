@@ -1,0 +1,27 @@
+name: describe explains a profile as data without running it
+roadmap: "5.1"
+steps:
+  - run: describe p --json
+    expect:
+      stdout_json:
+        schema: 1
+        profile: p
+        project: ${WORK}
+        "start_order[0][0]": db
+        "start_order[0][1]": tunnel
+        "start_order[1][0]": api
+        "start_order[2][0]": web
+        "processes[name=api].dependents[0]": web
+        "processes[name=api].uses[0]": "${tunnel.url}"
+        "processes[name=api].readiness.checks[0]": "tcp 127.0.0.1:4555"
+        "processes[name=api].ports[0]": 4555
+        "processes[name=api].restart.policy": on-failure
+        "processes[name=web].signal_preset": vite
+        "processes[name=web].signals.Rebuilt": "page reload |hmr update |server restarted\\."
+        "processes[name=tunnel].captures[0].name": url
+        ports.api: 4555
+        running: false
+  - run: describe p
+    expect:
+      stdout_contains: ["Start order:\n  1. db, tunnel\n  2. api\n  3. web\n", "needed by: web", "uses: ${tunnel.url}", "rebuild signals: vite", "restart: on-failure"]
+  - process: {matches: "${TOKEN}", absent: true, timeout: 1s}

@@ -1,0 +1,14 @@
+name: a readiness timeout fails the stack, names the pending check and stops the process
+roadmap: "0.4"
+steps:
+  - run: up p
+    timeout: 15s
+    expect:
+      exit: 1
+      stderr_contains:
+        - "--- FAILED: app ---"
+        - "Cause: readiness timeout after 2s; still waiting for log /WILL_NEVER_APPEAR/"
+        - "Last output:\n  NOT_THE_SIGNAL\n"
+        - "Full log: "
+        - "Read it later with: stackstart logs app"
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}

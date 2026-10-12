@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      silent:
+        cmd: exec perl -e 'sleep 300' ${TOKEN}
+      talker:
+        cmd: echo RUNNING; exec perl -e 'sleep 300' ${TOKEN}

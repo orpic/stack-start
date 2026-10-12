@@ -1,0 +1,33 @@
+name: up -d returns once ready, the stack outlives the command, and status/logs/down work from anywhere
+roadmap: "1.1, 1.7, 1.8"
+steps:
+  - run: up p -d
+    timeout: 20s
+    expect:
+      stdout_matches: '^Started "p" in \S+ \(PID \d+\)\. Logs: \S+\n$'
+      stderr_contains: "stackstart: all 2 processes ready · logs: "
+  # The command has returned; the stack keeps running on its own.
+  - process: {matches: "^perl -e sleep 300 web-${TOKEN}$", count: 1, timeout: 2s}
+  - run: status --json
+    save_json: {WEB_PID: "sessions[0].processes[name=web].pid", RUN: "sessions[0].run_id"}
+    expect:
+      stdout_json:
+        schema: 1
+        sessions[0].profile: p
+        sessions[0].project: ${WORK}
+        sessions[0].detached: true
+        sessions[0].state: running
+        sessions[0].processes[name=db].state: ready
+        sessions[0].processes[name=web].state: ready
+        sessions[0].processes[name=web].depends_on[0]: db
+        sessions[0].processes[name=web].restarts: 0
+  - process: {matches: "^perl -e sleep 300 web-${TOKEN}$", count: 1, timeout: 1s}
+  - run: logs web --no-follow
+    expect: {stdout_equals: "web up\n", stderr_contains: "==> web · p · ${WORK} · running <=="}
+  - run: up p -d
+    expect: {exit: 1, stderr_contains: "profile is already running for this project"}
+  - run: down
+    expect: {stdout_contains: "Stopped \"p\" in ${WORK}."}
+  - process: {matches: "${TOKEN}", absent: true, timeout: 3s}
+  - run: status --json
+    expect: {stdout_json: {schema: 1, sessions: "[]"}}

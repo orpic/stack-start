@@ -1,0 +1,17 @@
+profiles:
+  ok:
+    processes:
+      setup:
+        kind: oneshot
+        cmd: echo BUILD_COMPLETE; echo EXTRA_OUTPUT
+        readiness: {timeout: 5s, checks: [{log: BUILD_COMPLETE}]}
+      app:
+        cmd: echo APP_UP; exec perl -e 'sleep 300' ${TOKEN}
+        depends_on: [setup]
+        readiness: {timeout: 5s, checks: [{log: APP_UP}]}
+  bad:
+    processes:
+      setup:
+        kind: oneshot
+        cmd: echo something else
+        readiness: {timeout: 5s, checks: [{log: BUILD_COMPLETE}]}

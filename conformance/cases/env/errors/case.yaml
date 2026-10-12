@@ -1,0 +1,11 @@
+name: an invalid .env, a blocked .envrc and an unresolved reference fail with the cause
+roadmap: v0
+requires: ["command -v direnv"]
+steps:
+  - write_file: {path: .env, content: "GOOD=1\nthis line has no equals\n"}
+  - run: up p
+    expect: {exit: 1, stderr_contains: [".env:2: invalid line (no '='): this line has no equals"]}
+  - sh: rm .env
+  - write_file: {path: .envrc, content: "export X=1\n"}
+  - run: up p
+    expect: {exit: 1, stderr_contains: ["direnv could not load ${WORK}/.envrc: ", "is blocked"]}

@@ -1,0 +1,49 @@
+# Rails 8 on SQLite, with bin/dev (foreman running puma and the tailwind
+# watcher). Port: puma 3200. Ruby comes from .tool-versions.
+profiles:
+  # Install gems, prepare the database, build CSS once: stackstart up setup
+  setup:
+    processes:
+      bundle:
+        kind: oneshot
+        cmd: bundle install
+        readiness: {timeout: 600s}
+      db:
+        kind: oneshot
+        cmd: bin/rails db:prepare
+        depends_on: [bundle]
+        readiness: {timeout: 120s}
+      css:
+        kind: oneshot
+        cmd: bin/rails tailwindcss:build
+        depends_on: [db]
+        readiness: {timeout: 120s}
+
+  dev:
+    processes:
+      app:
+        # What bin/dev does: foreman runs puma and the tailwind watcher
+        # (Procfile.dev), each with its own prefix.
+        cmd: bundle exec foreman start -f Procfile.dev
+        signals: {preset: rails}
+        env:
+          PORT: "3200"
+          RUBY_DEBUG_OPEN: "true"
+          RUBY_DEBUG_LAZY: "true"
+        fail_on:
+          - "Address already in use"
+        readiness:
+          timeout: 90s
+          checks:
+            - log: "Listening on http://127.0.0.1:3200"
+            - tcp: 127.0.0.1:3200
+
+  # A Rails console, ready when its prompt appears (no trailing newline).
+  console:
+    processes:
+      console:
+        cmd: bin/rails console
+        readiness:
+          timeout: 90s
+          checks:
+            - log: '^rails-app\(dev\):[0-9]+> '

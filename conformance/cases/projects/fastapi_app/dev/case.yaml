@@ -1,0 +1,31 @@
+name: "FastAPI: uvicorn --reload logs to stderr; an edit restarts the worker; down stops reloader and worker"
+roadmap: "0.12"
+covers: [self-restart, stderr-only, child-tree]
+project: test-projects/fastapi_app
+requires: ["python3 --version"]
+timeout: 600s
+steps:
+  - port: {addr: "127.0.0.1:8200", open: false, timeout: 1s}
+  - run: up setup
+    id: setup
+    timeout: 400s
+    expect: {stderr_contains: "all processes finished"}
+  - start: up dev
+  - wait_output: {id: up, stream: stderr, contains: "1 process ready", timeout: 60s}
+  - http: {url: "http://127.0.0.1:8200/", body_contains: "Hello from FastAPI", timeout: 10s}
+  - run: status --json
+    save_json: {SEQ: "sessions[0].events.last_seq"}
+  - mark: {id: up, name: before-edit}
+  - edit_file: {path: app/main.py, replace: {from: "Hello from FastAPI", to: "Hello again from FastAPI"}}
+  - wait_output: {id: up, stream: stdout, contains: "WatchFiles detected changes in 'app/main.py'. Reloading...", since: before-edit, timeout: 20s}
+  - wait_output: {id: up, stream: stdout, contains: "Application startup complete.", since: before-edit, timeout: 20s}
+  - run: wait api --for rebuilt --after ${SEQ} --timeout 20s
+    expect: {stdout_contains: "rebuild_finished api"}
+  - http: {url: "http://127.0.0.1:8200/", body_contains: "Hello again from FastAPI", timeout: 10s}
+  - run: down
+  - wait_exit: {id: up, exit: 0, timeout: 5s}
+  - port: {addr: "127.0.0.1:8200", open: false, timeout: 5s}
+  - run: logs api
+    expect:
+      stdout_in_order: ["Application startup complete.", "Reloading...", "Started server process", "Application startup complete."]
+      stdout_not_contains: "\e"

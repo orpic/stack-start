@@ -1,0 +1,7 @@
+profiles:
+  p:
+    processes:
+      app:
+        # npm run dev -> node -> esbuild: a shell, its child, and a grandchild.
+        cmd: sh -c "perl -e 'sleep 300' grandchild-${TOKEN} & echo parent ready; wait" child-${TOKEN}
+        readiness: {timeout: 5s, checks: [{log: "parent ready"}]}
