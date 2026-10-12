@@ -1,0 +1,11 @@
+name: a daemon whose launcher is stopped after double-forking it is not left running
+roadmap: "3.6"
+covers: [daemonize]
+steps:
+  - run: up p -d --no-wait
+    timeout: 10s
+  - sleep: {duration: 300ms, reason: "the launcher has forked the daemon and is still running"}
+  - run: down
+    timeout: 30s
+  - sleep: {duration: 2500ms, reason: "the daemon writes its pidfile 1.5s after launch"}
+  - process: {matches: "^lingering-daemon-${TOKEN}", absent: true, timeout: 5s}

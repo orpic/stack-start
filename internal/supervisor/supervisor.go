@@ -408,6 +408,13 @@ func (s *Supervisor) waitLoop() {
 	}
 	_ = s.ptyMaster.Close()
 
+	// Stopped while the launcher still ran: the stop signal can kill the
+	// launcher after it forked the daemon, so look for the daemon anyway
+	// (watchDaemon stops it, or gives up shortly).
+	if s.isDaemon() && err != nil && s.stopReq.Load() {
+		_ = s.watchDaemon()
+	}
+
 	if s.isDaemon() && err == nil && !s.failed.Load() {
 		if derr := s.watchDaemon(); derr != nil {
 			s.exit = exitInfo(s.cmd)
